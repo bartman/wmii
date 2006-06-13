@@ -9,93 +9,34 @@
 #define BLITZ_FONT		"fixed"
 #define BLITZ_SELCOLORS		"#ffffff #335577 #447799"
 #define BLITZ_NORMCOLORS	"#222222 #eeeeee #666666"
+#define BLITZ_FRAME_MASK	SubstructureRedirectMask | SubstructureNotifyMask \
+							| ExposureMask | ButtonPressMask | ButtonReleaseMask;
 
-typedef struct Blitz Blitz;
-typedef enum BlitzAlign BlitzAlign;
-typedef struct BlitzColor BlitzColor;
-typedef struct BlitzFont BlitzFont;
-typedef struct BlitzLabel BlitzLabel;
-#define BLITZLABEL(p) ((BlitzLabel *)(p))
-typedef struct BlitzLayout BlitzLayout;
-#define BLITZLAYOUT(p) ((BlitzLayout *)(p))
-typedef union BlitzWidget BlitzWidget;
-#define BLITZWIDGET(p) ((BlitzWidget *)(p))
-typedef struct BlitzWin BlitzWin;
+typedef enum {
+    NORTH = 0x01,
+    EAST  = 0x02,
+    SOUTH = 0x04,
+    WEST  = 0x08,
+    NEAST = NORTH | EAST,
+    NWEST = NORTH | WEST,
+    SEAST = SOUTH | EAST,
+    SWEST = SOUTH | WEST,
+    CENTER = NEAST | SWEST
+} BlitzAlign;
 
-struct Blitz {
-	Display *display;
-	int screen;
-	Window root;
-};
-
-enum BlitzAlign {
-	NORTH = 0x01,
-	EAST  = 0x02,
-	SOUTH = 0x04,
-	WEST  = 0x08,
-	NEAST = NORTH | EAST,
-	NWEST = NORTH | WEST,
-	SEAST = SOUTH | EAST,
-	SWEST = SOUTH | WEST,
-	CENTER = NEAST | SWEST
-};
-
-struct BlitzColor {
+typedef struct {
 	unsigned long bg;
 	unsigned long fg;
 	unsigned long border;
-};
+} BlitzColor;
 
-struct BlitzFont {
+typedef struct {
 	XFontStruct *xfont;
 	XFontSet set;
 	int ascent;
 	int descent;
-};
+} BlitzFont;
 
-struct BlitzWin{
-	Drawable drawable;
-	GC gc;
-	XRectangle rect;
-};
-
-struct BlitzLayout {
-	XRectangle rect;
-	Bool expand;
-	BlitzWidget *next;
-	void (*draw)(BlitzWidget *);
-	void (*destroy)(BlitzWidget *);
-	/* widget specific */
-	BlitzWin *win;
-	BlitzWidget *rows;
-	BlitzWidget *cols;
-	void (*scale)(BlitzWidget *);
-};
-
-struct BlitzLabel {
-	XRectangle rect;
-	Bool expand;
-	BlitzWidget *next;
-	void (*draw)(BlitzWidget *);
-	void (*destroy)(BlitzWidget *);
-	/* widget specific */
-	BlitzColor color;
-	BlitzAlign align;
-	BlitzFont font;
-	char *text;
-};
-
-union BlitzWidget {
-	XRectangle rect;
-	Bool expand;
-	BlitzWidget *next;
-	void (*draw)(BlitzWidget *);
-	void (*destroy)(BlitzWidget *);
-	BlitzLabel label;
-	BlitzLayout layout;
-};
-
-/* obsolete, will be replaced soon */
 typedef struct {
 	BlitzAlign align;
 	Drawable drawable;
@@ -106,32 +47,39 @@ typedef struct {
 	XRectangle *notch;	/* relative notch rect */
 	char *data;
 } BlitzDraw;
-/***/
-
-Blitz __blitz;
-
-/* blitz.c */
-void blitz_x11_init(Display *dpy);
-
-/* color.c */
-int blitz_loadcolor(BlitzColor *c, char *colstr);
-
-/* label.c */
-void blitz_drawlabel(BlitzDraw *d);
-void blitz_drawborder(BlitzDraw *d);
-
-/* layout.c */
-BlitzLayout *blitz_create_layout(BlitzWin *win, BlitzWidget **w);
 
 /* font.c */
-unsigned int blitz_textwidth(BlitzFont *font, char *text);
-void blitz_loadfont(BlitzFont *font, char *fontstr);
+unsigned int blitz_textwidth(Display *dpy, BlitzFont *font, char *text);
+void blitz_loadfont(Display *dpy, BlitzFont *font, char *fontstr);
 
-/* widget.c */
-void blitz_add_widget(BlitzWidget **l, BlitzWidget *w);
-void blitz_rm_widget(BlitzWidget **l, BlitzWidget *w);
+/* color.c */
+int blitz_loadcolor(Display *dpy, BlitzColor *c, int mon, char *colstr);
+
+/* draw.c */
+void blitz_drawlabel(Display *dpy, BlitzDraw *d);
+void blitz_drawborder(Display *dpy, BlitzDraw *d);
+
+/* new stuff */
+
+typedef struct {
+	Display *display;
+	int screen;
+	Window root;
+} Blitz;
+
+typedef struct {
+	Drawable drawable;
+	GC gc;
+	XRectangle rect;
+} BlitzWindow;
+
+/* blitz.c */
+void blitz_init(Blitz *blitz, Display *dpy);
+void blitz_deinit(Blitz *blitz);
 
 /* window.c */
-BlitzWin *blitz_create_win(unsigned long mask, int x, int y, int w, int h);
-void blitz_resize_win(BlitzWin *win, int x, int y, int w, int h);
-void blitz_destroy_win(BlitzWin *win);
+void blitz_create_win(Blitz *blitz, BlitzWindow *win, unsigned long mask, 
+								int x, int y, int w, int h);
+void blitz_resize_win(Blitz *blitz, BlitzWindow *win,
+						int x, int y, int w, int h);
+void blitz_destroy_win(Blitz *blitz, BlitzWindow *win);
