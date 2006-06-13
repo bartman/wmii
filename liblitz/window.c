@@ -8,36 +8,38 @@
 
 #include "blitz.h"
 
-void 
-blitz_create_win(Blitz *blitz, BlitzWindow *win, unsigned long mask,
-				int x, int y, int w, int h)
+BlitzWin *
+blitz_create_win(unsigned long mask, int x, int y, int w, int h)
 {
+	BlitzWin *win = cext_emallocz(sizeof(BlitzWin));
 	XSetWindowAttributes wa;
 	wa.override_redirect = 1;
 	wa.background_pixmap = ParentRelative;
 	wa.event_mask = mask;
 
-	win->drawable = XCreateWindow(blitz->display, blitz->root,
-			x, y, w, h, 0, DefaultDepth(blitz->display, blitz->screen),
-			CopyFromParent, DefaultVisual(blitz->display, blitz->screen),
+	win->drawable = XCreateWindow(__blitz.display, __blitz.root,
+			x, y, w, h, 0, DefaultDepth(__blitz.display, __blitz.screen),
+			CopyFromParent, DefaultVisual(__blitz.display, __blitz.screen),
 			CWOverrideRedirect | CWBackPixmap | CWEventMask, &wa);
-	win->gc = XCreateGC(blitz->display, win->drawable, 0, 0);
+	win->gc = XCreateGC(__blitz.display, win->drawable, 0, 0);
+	blitz_resize_win(win, x, y, w, h);
+
+	return win;
+}
+
+void
+blitz_resize_win(BlitzWin *win, int x, int y, int w, int h)
+{
 	win->rect.x = x;
 	win->rect.y = y;
 	win->rect.width = w;
 	win->rect.height = h;
+	XMoveResizeWindow(__blitz.display, win->drawable, x, y, w, h);
 }
 
 void
-blitz_resize_win(Blitz *blitz, BlitzWindow *win, int x, int y, int w, int h)
+blitz_destroy_win(BlitzWin *win)
 {
-	XMoveResizeWindow(blitz->display, win->drawable, x, y, w, h);
-}
-
-void
-blitz_destroy_win(Blitz *blitz, BlitzWindow *win)
-{
-	XFreeGC(blitz->display, win->gc);
-	XDestroyWindow(blitz->display, win->drawable);
-	free(win);
+	XFreeGC(__blitz.display, win->gc);
+	XDestroyWindow(__blitz.display, win->drawable);
 }
