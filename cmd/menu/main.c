@@ -21,7 +21,7 @@ static char*	ectl;
 
 static void
 usage(void) {
-	fatal("usage: wimenu -i [-h <history>] [-a <address>] [-p <prompt>]\n");
+	fatal("usage: wimenu -i [-h <history>] [-a <address>] [-p <prompt>] [-s <screen>]\n");
 }
 
 static int
@@ -181,23 +181,30 @@ preselect(IxpServer *s) {
 	check_x_event(nil);
 }
 
+#define SCREEN_WITH_POINTER -1
+
 void
-init_screens(void) {
+init_screens(int screen_hint) {
 	Rectangle *rects;
 	Point p;
 	int i, n;
 
-	/* Pick the screen with the pointer, for now. Later,
-	 * try for the screen with the focused window first.
-	 */
-	p = querypointer(&scr.root);
 	rects = xinerama_screens(&n);
-	for(i=0; i < n; i++)
-		if(rect_haspoint_p(p, rects[i]))
-			break;
-	if(i == n)
-		i = 0;
-	/* Probably not the best route. */
+	if (screen_hint >= 0 && screen_hint < n) {
+		/* we were given a valid screen index, use that */
+		i = screen_hint;
+
+	} else {
+		/* Pick the screen with the pointer, for now. Later,
+		 * try for the screen with the focused window first.
+		 */
+		p = querypointer(&scr.root);
+		for(i=0; i < n; i++)
+			if(rect_haspoint_p(p, rects[i]))
+				break;
+		if(i == n)
+			i = 0;
+	}
 	scr.rect = rects[i];
 	menu_show();
 }
@@ -209,6 +216,7 @@ main(int argc, char *argv[]) {
 	char *histfile;
 	int i;
 	long ndump;
+	int screen;
 
 	quotefmtinstall();
 	fmtinstall('r', errfmt);
@@ -216,6 +224,7 @@ main(int argc, char *argv[]) {
 	histfile = nil;
 	prompt = nil;
 	promptw = 0;
+	screen = SCREEN_WITH_POINTER;
 
 	find = strstr;
 	compare = strncmp;
@@ -234,6 +243,9 @@ main(int argc, char *argv[]) {
 		break;
 	case 'p':
 		prompt = EARGF(usage());
+		break;
+	case 's':
+		screen = strtol(EARGF(usage()), nil, 10);
 		break;
 	case 'i':
 		find = strcasestr;
@@ -294,7 +306,7 @@ main(int argc, char *argv[]) {
 		}
 	}
 
-	init_screens();
+	init_screens(screen);
 
 	i = ixp_serverloop(&srv);
 	if(i)
