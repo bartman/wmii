@@ -15,9 +15,10 @@ enum {
 
 static void
 cwin_expose(Window *w, XExposeEvent *e) {
+	CTuple *c = selscreen_color(focuscolor);
 
-	fill(w, rectsubpt(w->r, w->r.min), def.focuscolor.bg);
-	fill(w, w->r, def.focuscolor.bg);
+	fill(w, rectsubpt(w->r, w->r.min), c->bg);
+	fill(w, w->r, c->bg);
 }
 
 static Handlers chandler = {
@@ -37,7 +38,7 @@ constraintwin(Rectangle r) {
 		selectinput(w2, ExposureMask);
 		w->aux = w2;
 
-		setborder(w2, 1, def.focuscolor.border);
+		setborder(w2, 1, selscreen_color(focuscolor)->border);
 		sethandler(w2, &chandler);
 		mapwin(w2);
 		raisewin(w2);
@@ -63,7 +64,7 @@ gethsep(Rectangle r) {
 	Window *w;
 	WinAttr wa;
 	
-	wa.background_pixel = def.normcolor.border.pixel;
+	wa.background_pixel = selscreen_color(normcolor)->border.pixel;
 	w = createwindow(&scr.root, r, scr.depth, InputOutput, &wa, CWBackPixel);
 	mapwin(w);
 	raisewin(w);
@@ -213,17 +214,16 @@ mouse_resizecolframe(Frame *f, Align align) {
 	Area *a;
 	Rectangle r;
 	Point pt, min;
-	int s;
 
 	assert((align&(East|West)) != (East|West));
 	assert((align&(North|South)) != (North|South));
 
 	f->collapsed = false;
 
-	v = selview;
+	v = selview();
 	d = divs;
 	SET(a);
-	foreach_column(v, s, a) {
+	foreach_column(v, a) {
 		if(a == f->area)
 			break;
 		d = d->next;
@@ -237,10 +237,10 @@ mouse_resizecolframe(Frame *f, Align align) {
 	/* Set the limits of where this box may be dragged. */
 #define frob(pred, f, aprev, rmin, rmax, plus, minus, xy) BLOCK(     \
 		if(pred) {                                           \
-			r.rmin.xy = f->aprev->r.rmin.xy plus min.xy; \
-			r.rmax.xy = f->r.rmax.xy minus min.xy;       \
+			r.rmin.xy = f->aprev->cr.rmin.xy plus min.xy; \
+			r.rmax.xy = f->cr.rmax.xy minus min.xy;       \
 		}else {                                              \
-			r.rmin.xy = a->r.rmin.xy;                    \
+			r.rmin.xy = a->cr.rmin.xy;                    \
 			r.rmax.xy = r.rmin.xy plus 1;                \
 		})
 	if(align&North)
@@ -255,7 +255,7 @@ mouse_resizecolframe(Frame *f, Align align) {
 
 	cwin = constraintwin(r);
 
-	r = f->r;
+	r = f->cr;
 	if(align&North)
 		r.min.y--;
 	else
@@ -267,8 +267,8 @@ mouse_resizecolframe(Frame *f, Align align) {
 	if(!grabpointer(&scr.root, cwin, cursor[CurSizing], MouseMask))
 		goto done;
 
-	pt.x = ((align&West) ? f->r.min.x : f->r.max.x);
-	pt.y = ((align&North) ? f->r.min.y : f->r.max.y);
+	pt.x = ((align&West) ? f->cr.min.x : f->cr.max.x);
+	pt.y = ((align&North) ? f->cr.min.y : f->cr.max.y);
 	warppointer(pt);
 
 	while(readmotion(&pt)) {
@@ -283,7 +283,7 @@ mouse_resizecolframe(Frame *f, Align align) {
 		reshapewin(hwin, r);
 	}
 
-	r = f->r;
+	r = f->cr;
 	if(align&West)
 		r.min.x = pt.x;
 	else
@@ -296,13 +296,13 @@ mouse_resizecolframe(Frame *f, Align align) {
 
 	/* XXX: Magic number... */
 	if(align&West)
-		pt.x = f->r.min.x + 4;
+		pt.x = f->cr.min.x + 4;
 	else
-		pt.x = f->r.max.x - 4;
+		pt.x = f->cr.max.x - 4;
 	if(align&North)
-		pt.y = f->r.min.y + 4;
+		pt.y = f->cr.min.y + 4;
 	else
-		pt.y = f->r.max.y - 4;
+		pt.y = f->cr.max.y - 4;
 	warppointer(pt);
 
 done:
@@ -314,20 +314,20 @@ done:
 void
 mouse_resizecol(Divide *d) {
 	Window *cwin;
+	WMScreen *s;
 	View *v;
 	Rectangle r;
 	Point pt;
-	int minw, scrn;
+	int minw;
 
-	v = selview;
-
-	scrn = (d->left ? d->left : d->right)->screen;
+	s = selscreen;
+	v = selview();
 
 	pt = querypointer(&scr.root);
 
 	minw = column_minwidth();
-	r.min.x = d->left  ? d->left->r.min.x + minw  : v->r[scrn].min.x;
-	r.max.x = d->right ? d->right->r.max.x - minw : v->r[scrn].max.x;
+	r.min.x = d->left  ? d->left->cr.min.x + minw  : s->r.min.x;
+	r.max.x = d->right ? d->right->cr.max.x - minw : s->r.max.x;
 	r.min.y = pt.y;
 	r.max.y = pt.y+1;
 
@@ -340,14 +340,14 @@ mouse_resizecol(Divide *d) {
 		div_set(d, pt.x);
 
 	if(d->left)
-		d->left->r.max.x = pt.x;
+		d->left->cr.max.x = pt.x;
 	else
-		v->pad[scrn].min.x = pt.x - v->r[scrn].min.x;
+		s->pad.min.x = pt.x - s->r.min.x;
 
 	if(d->right)
-		d->right->r.min.x = pt.x;
+		d->right->cr.min.x = pt.x;
 	else
-		v->pad[scrn].max.x = pt.x - v->r[scrn].max.x;
+		s->pad.max.x = pt.x - s->r.max.x;
 
 	view_arrange(v);
 
@@ -387,8 +387,8 @@ mouse_resize(Client *c, Align align, bool grabmod) {
 	if(!grabpointer(c->framewin, nil, cur, MouseMask))
 		return;
 
-	origin = f->r;
-	frect = f->r;
+	origin = f->cr;
+	frect = f->cr;
 	rects = view_rects(f->area->view, &nrect, c->frame);
 
 	pt = querypointer(c->framewin);
@@ -408,7 +408,7 @@ mouse_resize(Client *c, Align align, bool grabmod) {
 		if(align&East) d.x += hr.x;
 		if(align&West) d.x -= hr.x;
 
-		pt = addpt(d, f->r.min);
+		pt = addpt(d, f->cr.min);
 		warppointer(pt);
 	}else {
 		hrx = (double)(Dx(scr.rect)
@@ -530,7 +530,7 @@ mouse_tempvertresize(Area *a, Point p) {
 		return;
 
 	for(fa=a->frame; fa; fa=fa->anext)
-		if(p.y < fa->r.max.y + labelh(def.font)/2)
+		if(p.y < fa->cr.max.y + labelh(def.font)/2)
 			break;
 	if(!(fa && fa->anext))
 		return;
@@ -549,8 +549,8 @@ mouse_tempvertresize(Area *a, Point p) {
 
 	r.min.x = p.x;
 	r.max.x = p.x + 1;
-	r.min.y = a->r.min.y + labelh(def.font) * nabove;
-	r.max.y = a->r.max.y - labelh(def.font) * nbelow;
+	r.min.y = a->cr.min.y + labelh(def.font) * nabove;
+	r.max.y = a->cr.max.y - labelh(def.font) * nbelow;
 	cwin = constraintwin(r);
 
 	if(!grabpointer(&scr.root, cwin, cursor[CurDVArrow], MouseMask))
@@ -593,7 +593,7 @@ mouse_checkresize(Frame *f, Point p, bool exec) {
 		return;
 	}
 
-	r = rectsubpt(f->r, f->r.min);
+	r = rectsubpt(f->cr, f->cr.min);
 	q = quadrant(r, p);
 	if(rect_haspoint_p(p, f->grabbox)) {
 		cur = cursor[CurTCross];
@@ -613,7 +613,7 @@ mouse_checkresize(Frame *f, Point p, bool exec) {
 		|| f->anext && r.max.y - p.y <= 2) {
 			cur = cursor[CurDVArrow];
 			if(exec)
-				mouse_tempvertresize(f->area, addpt(p, f->r.min));
+				mouse_tempvertresize(f->area, addpt(p, f->cr.min));
 		}
 	}
 

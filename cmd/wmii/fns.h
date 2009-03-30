@@ -21,22 +21,20 @@
 
 /* Grotesque, but worth it. */
 
-#define foreach_area(v, s, a) \
-	with(int, __alive)                            \
-	with(Area*, __anext)                          \
-	for(s=0; _cond(s <= nscreens, 0); _cont(s++)) \
-		for((a)=(s < nscreens ? (v)->areas[s] : v->floating), __anext=(a)->next; _cond(a, 1); _cont(((a)=__anext) && (__anext=(a)->next)))
+#define foreach_area(v, a) \
+	with(Area*, __anext) \
+	with(int, __floating) \
+	for(__floating=0; __floating<2; __floating++)          \
+		for((a)=(__floating==0 ? (v)->areas : v->floating), __anext=(a)->next; (a); (void)(((a)=__anext) && (__anext=(a)->next)))
 
-#define foreach_column(v, s, a) \
-	with(int, __alive)                           \
-	with(Area*, __anext)                         \
-	for(s=0; _cond(s < nscreens, 0); _cont(s++)) \
-		for((a)=(v)->areas[s], __anext=(a)->next; _cond(a, 1); _cont(((a)=__anext) && (__anext=(a)->next)))
+#define foreach_column(v, a) \
+	with(Area*, __anext) \
+		for((a)=(v)->areas, __anext=(a)->next; (a); (void)(((a)=__anext) && (__anext=(a)->next)))
 
-#define foreach_frame(v, s, a, f) \
-	with(Frame*, __fnext)     \
-	foreach_area(v, s, a)     \
-		for((void)(((f)=(a)->frame) && (__fnext=(f)->anext)); _cond(f, 2); _cont(((f)=__fnext) && (__fnext=(f)->anext)))
+#define foreach_frame(v, a, f) \
+	with(Frame*, __fnext) \
+	foreach_area(v, a)     \
+		for((void)(((f)=(a)->frame) && (__fnext=(f)->anext)); (f); (void)(((f)=__fnext) && (__fnext=(f)->anext)))
 
 #define btassert(arg, cond) \
 	(cond ? fprint(1, __FILE__":%d: failed assertion: " #cond "\n", __LINE__), backtrace(arg), true : false)
@@ -44,7 +42,7 @@
 /* area.c */
 int	afmt(Fmt*);
 void	area_attach(Area*, Frame*);
-Area*	area_create(View*, Area *pos, int scrn, uint w);
+Area*	area_create(View*, Area *pos, uint w);
 void	area_destroy(Area*);
 void	area_detach(Frame*);
 Area*	area_find(View*, Rectangle, int, bool);
@@ -110,7 +108,7 @@ void	column_detach(Frame*);
 void	column_frob(Area*);
 void	column_insert(Area*, Frame*, Frame*);
 int	column_minwidth(void);
-Area*	column_new(View*, Area*, int, uint);
+Area*	column_new(View*, Area*, uint);
 void	column_remove(Frame*);
 void	column_resize(Area*, int);
 void	column_resizeframe(Frame*, Rectangle);
@@ -189,7 +187,8 @@ void	fs_remove(Ixp9Req*);
 void	fs_stat(Ixp9Req*);
 void	fs_walk(Ixp9Req*);
 void	fs_write(Ixp9Req*);
-void	event(const char*, ...);
+void	event(const char*, ...)
+	__attribute__ ((format (printf, 1, 2)));
 
 /* geom.c */
 Align	get_sticky(Rectangle src, Rectangle dst);
@@ -208,6 +207,9 @@ void	update_keys(void);
 /* main.c */
 void	init_screens(void);
 void	spawn_command(const char*);
+void    distribute_views_on_screens(void);
+void    bart_dbg(const char *fmt, ...);
+void    bart_dump_screens_and_views(const char *why);
 
 /* map.c */
 void**	hash_get(Map*, const char*, bool create);
@@ -220,6 +222,7 @@ bool	getlong(const char*, long*);
 bool	getulong(const char*, ulong*);
 char*	message_client(Client*, IxpMsg*);
 char*	message_root(void*, IxpMsg*);
+char*	message_screen(WMScreen*, IxpMsg*);
 char*	message_view(View*, IxpMsg*);
 char*	msg_debug(IxpMsg*);
 char*	msg_getword(IxpMsg*);
@@ -229,7 +232,8 @@ char*	msg_sendclient(View*, IxpMsg*, bool swap);
 char*	readctl_client(Client*);
 char*	readctl_root(void);
 char*	readctl_view(View*);
-Area*	strarea(View*, ulong, const char*);
+char*	readctl_screen(WMScreen*);
+Area*	strarea(View*, const char*);
 void	warning(const char*, ...);
 /* debug */
 void	debug(int, const char*, ...);
@@ -262,6 +266,13 @@ void	root_init(void);
 /* screen.c */
 void*	findthing(Rectangle, int, Vector_ptr*, Rectangle(*)(void*), bool);
 int	ownerscreen(Rectangle);
+WMScreen *findscreen(Point pt);
+WMScreen *findscreen_by_name(const char *name);
+View     *screen_selview(WMScreen*);
+#define   selview() screen_selview(selscreen)
+void	screen_update(WMScreen*);
+void    screen_check_change(Window*, XCrossingEvent*);
+void    screen_change(WMScreen*, int);
 
 /* rule.c */
 void	trim(char *str, const char *chars);
@@ -273,21 +284,27 @@ void	view_attach(View*, Frame*);
 View*	view_create(const char*);
 void	view_destroy(View*);
 void	view_detach(Frame*);
-Area*	view_findarea(View*, int, int, bool);
+Area*	view_findarea(View*, int, bool);
 void	view_focus(WMScreen*, View*);
-bool	view_fullscreen_p(View*, int);
+bool	view_fullscreen_p(View*);
 char*	view_index(View*);
-void	view_init(View*, int iscreen);
+void	view_init(View*);
 char**	view_names(void);
 uint	view_newcolwidth(View*, int i);
 void	view_restack(View*);
-void	view_scale(View*, int, int);
+void	view_scale(View*, int);
 Client*	view_selclient(View*);
 void	view_select(const char*);
+void    view_select_on(WMScreen *s, const char *name);
 void	view_update(View*);
-void	view_update_all(void);
+void	view_update_all(WMScreen*);
 void	view_update_rect(View*);
 Rectangle*	view_rects(View*, uint *num, Frame *ignore);
+WMScreen *view_which_screen(View*);
+bool    view_isvisible(View*);
+bool    view_isselected(View*);
+Rectangle view_rect(View*);
+Rectangle view_pad(View*);
 
 /* _util.c */
 void	backtrace(char*);

@@ -73,6 +73,7 @@ randr_screenchange(XRRScreenChangeNotifyEvent *ev) {
 	else
 		scr.rect = Rect(0, 0, ev->height, ev->width);
 	init_screens();
+	distribute_views_on_screens();
 }
 
 static EvHandler randr_handlers[] = {

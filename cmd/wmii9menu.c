@@ -255,6 +255,12 @@ run_menu(void)
 	}
 }
 
+void
+distribute_views_on_screens(void)
+{
+	/* we have nothing to do here */
+}
+
 /* set_wm_hints --- set all the window manager hints */
 
 void

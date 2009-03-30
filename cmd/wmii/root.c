@@ -26,11 +26,13 @@ root_init(void) {
 static void
 enter_event(Window *w, XCrossingEvent *e) {
 	disp.sel = true;
+	screen_check_change(w, e);
 	frame_draw_all();
 }
 
 static void
 leave_event(Window *w, XCrossingEvent *e) {
+	screen_check_change(w, e);
 	if(!e->same_screen) {
 		disp.sel = false;
 		frame_draw_all();

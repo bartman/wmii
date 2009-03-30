@@ -94,12 +94,11 @@ ewmh_updatestacking(void) {
 	Frame *f;
 	Area *a;
 	View *v;
-	int s;
 
 	vector_linit(&vec);
 
 	for(v=view; v; v=v->next) {
-		foreach_column(v, s, a)
+		foreach_column(v, a)
 			for(f=a->frame; f; f=f->anext)
 				if(f->client->sel == f)
 					vector_lpush(&vec, f->client->w.xid);
@@ -315,7 +314,7 @@ ewmh_getstrut(Client *c) {
 	Dprint(DEwmh, "\tright: %R\n", c->strut->right);
 	Dprint(DEwmh, "\tbottom: %R\n", c->strut->bottom);
 	free(strut);
-	view_update(selview);
+	view_update(selview());
 }
 
 static void
@@ -434,8 +433,8 @@ ewmh_framesize(Client *c) {
 	f = c->sel;
 	r.min.x = f->crect.min.x;
 	r.min.y = f->crect.min.y;
-	r.max.x = Dx(f->r) - f->crect.max.x;
-	r.max.y = Dy(f->r) - f->crect.max.y;
+	r.max.x = Dx(f->cr) - f->crect.max.x;
+	r.max.y = Dy(f->cr) - f->crect.max.y;
 
 	long extents[] = {
 		r.min.x, r.max.x,
@@ -452,7 +451,7 @@ ewmh_updatestate(Client *c) {
 	int i;
 
 	f = c->sel;
-	if(f == nil || f->view != selview)
+	if(f == nil || !view_isvisible(f->view))
 		return;
 
 	i = 0;
@@ -505,19 +504,18 @@ viewidx(View *v) {
 
 	for(vp=view, i=0; vp; vp=vp->next, i++)
 		if(vp == v)
-			break;
-	assert(vp);
-	return i;
+			return i;
+	return -1;
 }
 
 void
 ewmh_updateview(void) {
 	long i;
 
-	if(starting)
+	if(starting || !selview())
 		return;
 
-	i = viewidx(selview);
+	i = viewidx(selview());
 	changeprop_long(&scr.root, Net("CURRENT_DESKTOP"), "CARDINAL", &i, 1);
 }
 
@@ -526,7 +524,7 @@ ewmh_updateclient(Client *c) {
 	long i;
 
 	i = -1;
-	if(c->sel)
+	if(c->sel && c->sel->view)
 		i = viewidx(c->sel->view);
 	changeprop_long(&c->w, Net("WM_DESKTOP"), "CARDINAL", &i, 1);
 }

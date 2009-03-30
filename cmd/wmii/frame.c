@@ -3,6 +3,7 @@
  */
 #include "dat.h"
 #include <math.h>
+#include <stdio.h>
 #include "fns.h"
 
 uint
@@ -28,16 +29,14 @@ frame_create(Client *c, View *v) {
 
 	if(c->sel) {
 		f->floatr = c->sel->floatr;
-		f->r = c->sel->r;
+		f->cr = c->sel->cr;
 	}else {
-		f->r = client_grav(c, c->r);
-		f->floatr = f->r;
+		f->cr = client_grav(c, c->r);
+		f->floatr = f->cr;
 		c->sel = f;
 	}
 	f->collapsed = false;
-	f->screen = -1;
 	f->oldarea = -1;
-	f->oldscreen = -1;
 
 	return f;
 }
@@ -170,7 +169,7 @@ bdown_event(Window *w, XButtonEvent *e) {
 			break;
 		case Button3:
 			focus(c, false);
-			mouse_resize(c, quadrant(f->r, Pt(e->x_root, e->y_root)), true);
+			mouse_resize(c, quadrant(f->cr, Pt(e->x_root, e->y_root)), true);
 			break;
 		default:
 			XAllowEvents(display, ReplayPointer, e->time);
@@ -209,6 +208,8 @@ static void
 enter_event(Window *w, XCrossingEvent *e) {
 	Client *c;
 	Frame *f;
+
+	screen_check_change(w, e);
 
 	c = w->aux;
 	f = c->sel;
@@ -268,9 +269,9 @@ frame_gethints(Frame *f) {
 	c = f->client;
 	h = *c->w.hints;
 
-	r = frame_rect2client(c, f->r, f->area->floating);
-	d.x = Dx(f->r) - Dx(r);
-	d.y = Dy(f->r) - Dy(r);
+	r = frame_rect2client(c, f->cr, f->area->floating);
+	d.x = Dx(f->cr) - Dx(r);
+	d.y = Dy(f->cr) - Dy(r);
 
 	if(!f->area->floating && def.incmode == IIgnore)
 		h.inc = Pt(1, 1);
@@ -356,8 +357,8 @@ frame_resize(Frame *f, Rectangle r) {
 
 	c = f->client;
 	if(c->fullscreen >= 0) {
-		f->r = screens[c->fullscreen]->r;
-		f->crect = rectsetorigin(f->r, ZP);
+		f->cr = screens[c->fullscreen]->r;
+		f->crect = rectsetorigin(f->cr, ZP);
 		return;
 	}
 
@@ -366,7 +367,7 @@ frame_resize(Frame *f, Rectangle r) {
 		f->collapsed = false;
 	*/
 
-	fr = frame_hints(f, r, get_sticky(f->r, r));
+	fr = frame_hints(f, r, get_sticky(f->cr, r));
 	if(f->area->floating && !c->strut)
 		fr = constrain(fr, -1);
 
@@ -387,18 +388,18 @@ frame_resize(Frame *f, Rectangle r) {
 
 	cr = frame_rect2client(c, fr, f->area->floating);
 	if(f->area->floating)
-		f->r = fr;
+		f->cr = fr;
 	else {
-		f->r = r;
+		f->cr = r;
 		dx = Dx(r) - Dx(cr);
 		dx -= 2 * (cr.min.x - fr.min.x);
 		cr.min.x += dx / 2;
 		cr.max.x += dx / 2;
 	}
-	f->crect = rectsubpt(cr, f->r.min);
+	f->crect = rectsubpt(cr, f->cr.min);
 
 	if(f->area->floating && !f->collapsed)
-		f->floatr = f->r;
+		f->floatr = f->cr;
 }
 
 static void
@@ -424,13 +425,13 @@ void
 frame_draw(Frame *f) {
 	Rectangle r, fr;
 	Client *c;
-	CTuple *col;
+	CTuple *col, *nc, *fc;
 	Image *img;
 	char *s;
 	uint w;
 	int n, m;
 
-	if(f->view != selview)
+	if(!view_isvisible(f->view))
 		return;
 	if(f->area == nil) /* Blech. */
 		return;
@@ -439,11 +440,14 @@ frame_draw(Frame *f) {
 	img = *c->ibuf;
 	fr = rectsetorigin(c->framewin->r, ZP);
 
+	fc = screen_color(selscreen, focuscolor);
+	nc = screen_color(selscreen, normcolor);
+
 	/* Pick colors. */
 	if(c == selclient() || c == disp.focus)
-		col = &def.focuscolor;
+		col = fc;
 	else
-		col = &def.normcolor;
+		col = nc;
 
 	/* Background/border */
 	r = fr;
@@ -460,8 +464,8 @@ frame_draw(Frame *f) {
 	/* Odd focus. Unselected, with keyboard focus. */
 	/* Draw a border just inside the titlebar. */
 	if(c != selclient() && c == disp.focus) {
-		border(img, insetrect(r, 1), 1, def.normcolor.bg);
-		border(img, insetrect(r, 2), 1, def.focuscolor.border);
+		border(img, insetrect(r, 1), 1, nc->bg);
+		border(img, insetrect(r, 2), 1, fc->border);
 	}
 
 	/* grabbox */
@@ -476,12 +480,12 @@ frame_draw(Frame *f) {
 
 	/* Odd focus. Selected, without keyboard focus. */
 	/* Draw a border around the grabbox. */
-	if(c != disp.focus && col == &def.focuscolor)
-		border(img, insetrect(r, -1), 1, def.normcolor.bg);
+	if(c != disp.focus && col == fc)
+		border(img, insetrect(r, -1), 1, nc->bg);
 
 	/* Draw a border on borderless+titleless selected apps. */
 	if(f->area->floating && c->borderless && c->titleless && !c->fullscreen && c == selclient())
-		setborder(c->framewin, def.border, def.focuscolor.border);
+		setborder(c->framewin, def.border, fc->border);
 	else
 		setborder(c->framewin, 0, def.focuscolor.border);
 
@@ -498,6 +502,15 @@ frame_draw(Frame *f) {
 		pushlabel(img, &r, s, col);
 		free(s);
 	}
+
+	if(c->floating && nscreens>1) {
+		s = emallocz(strlen(f->view->name) + 3
+				+ strlen(f->view->screen->name) + 1);
+		sprintf(s, "(%s @ %s)", f->view->name, f->view->screen->name);
+		pushlabel(img, &r, s, col);
+		free(s);
+	}
+
 	/* Label clients with extra tags. */
 	if((s = client_extratags(c))) {
 		pushlabel(img, &r, s, col);
@@ -540,7 +553,7 @@ frame_draw_all(void) {
 	Client *c;
 
 	for(c=client; c; c=c->next)
-		if(c->sel && c->sel->view == selview)
+		if(c->sel && view_isvisible(c->sel->view))
 			frame_draw(c->sel);
 }
 
@@ -621,7 +634,7 @@ frame_focus(Frame *f) {
 	if(old_a != v->oldsel && f != old_f)
 		v->oldsel = nil;
 
-	if(v != selview || a != v->sel)
+	if(!view_isvisible(v) || a != v->sel)
 		return;
 
 	move_focus(old_f, f);
@@ -649,7 +662,7 @@ constrain(Rectangle r, int inset) {
 	int best, n;
 
 	if(inset < 0)
-		inset = Dy(screen->brect);
+		inset = Dy(selscreen->brect);
 	/* 
 	 * FIXME: This will cause problems for windows with
 	 * D(r) < 2 * inset
@@ -658,7 +671,7 @@ constrain(Rectangle r, int inset) {
 	SET(best);
 	sbest = nil;
 	for(sp=screens; (s = *sp); sp++) {
-		if (!screen->showing)
+		if (!s->showing)
 			continue;
 		isect = rect_intersection(r, insetrect(s->r, inset));
 		if(Dx(isect) >= 0 && Dy(isect) >= 0)

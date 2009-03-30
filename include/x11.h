@@ -46,16 +46,27 @@ typedef enum WindowType WindowType;
 
 typedef XSetWindowAttributes WinAttr;
 
-typedef struct Point Point;
-typedef struct Rectangle Rectangle;
+struct FPoint {
+	float x, y;
+};
+
+struct FRectangle {
+	struct FPoint min, max;
+};
+
+typedef struct FPoint FPoint;
+typedef struct FRectangle FRectangle;
 
 struct Point {
 	int x, y;
 };
 
 struct Rectangle {
-	Point min, max;
+	struct Point min, max;
 };
+
+typedef struct Point Point;
+typedef struct Rectangle Rectangle;
 
 typedef struct Color Color;
 typedef struct CTuple CTuple;
@@ -79,6 +90,7 @@ struct CTuple {
 	Color border;
 	char colstr[24]; /* #RRGGBB #RRGGBB #RRGGBB */
 };
+#define col_isset(c) ((c)->colstr[0])
 
 struct ErrorCode {
 	uchar rcode;
@@ -197,9 +209,15 @@ XRectangle XRect(Rectangle r);
 
 #define Dx(r) ((r).max.x - (r).min.x)
 #define Dy(r) ((r).max.y - (r).min.y)
+
 #define Pt(x, y) ((Point){(x), (y)})
 #define Rpt(p, q) ((Rectangle){p, q})
 #define Rect(x0, y0, x1, y1) ((Rectangle){Pt(x0, y0), Pt(x1, y1)})
+
+#define FPt(x, y) ((FPoint){(x), (y)})
+#define FRpt(p, q) ((FRectangle){p, q})
+#define FRect(x0, y0, x1, y1) ((FRectangle){FPt(x0, y0), FPt(x1, y1)})
+
 #define changeprop(w, prop, type, data, n) \
 	changeproperty(w, prop, type, \
 		((sizeof(*(data)) == 8 ? 4 : sizeof(*(data))) * 8), \

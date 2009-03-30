@@ -214,6 +214,12 @@ init_screens(int screen_hint) {
 	menu_show();
 }
 
+void
+distribute_views_on_screens(void)
+{
+	/* we have nothing to do here */
+}
+
 int
 main(int argc, char *argv[]) {
 	Item *item;

@@ -74,6 +74,12 @@ enum {
 	Toggle,
 };
 
+enum {
+	LastArea = -1,
+	CurrentArea = 0,
+	FirstArea = 1,
+};
+
 enum Barpos {
 	BBottom,
 	BTop,
@@ -137,10 +143,10 @@ struct Area {
 	bool	floating;
 	ushort	id;
 	int	mode;
-	int	screen;
 	bool	max;
-	Rectangle	r;
-	Rectangle	r_old;
+	FRectangle	sr; // scale of view
+	Rectangle	cr; // for current view
+	//Rectangle	r_old;
 };
 
 struct Bar {
@@ -210,14 +216,13 @@ struct Frame {
 	Client*	client;
 	View*	view;
 	Area*	area;
-	int	oldscreen;
 	int	oldarea;
-	int	screen;
 	int	column;
 	ushort	id;
 	bool	collapsed;
 	int	dy;
-	Rectangle	r;
+	FRectangle	sr; // scale of view
+	Rectangle	cr; // for current view
 	Rectangle	colr;
 	Rectangle	colr_old;
 	Rectangle	floatr;
@@ -268,22 +273,19 @@ struct Strut {
 	Rectangle	bottom;
 };
 
-#define firstarea areas[screen->idx]
-#define screenr r[screen->idx]
 struct View {
 	View*	next;
 	char	name[256];
 	ushort	id;
 	Area*	floating;
-	Area**	areas;
+	Area*	areas;
 	Area*	sel;
 	Area*	oldsel;
 	Area*	revert;
 	int	selcol;
-	int	selscreen;
 	bool	dead;
-	Rectangle *r;
-	Rectangle *pad;
+
+	WMScreen *screen;
 };
 
 /* Yuck. */
@@ -331,16 +333,28 @@ enum {
 #define BLOCK(x) do { x; }while(0)
 
 EXTERN struct WMScreen {
+	char	name[256];
 	Bar*	bar[2];
 	Window*	barwin;
 	bool	showing;
 	int	barpos;
 	int	idx;
 
-	Rectangle r;
-	Rectangle brect;
-} **screens, *screen;
+	CTuple	focuscolor;
+	CTuple	normcolor;
+	Font*	font;
+
+	View*	selview;
+
+	Rectangle r;        // entire screen
+	Rectangle pad;
+	Rectangle brect;    // for bar
+	Rectangle vrect;    // for view
+} **screens;
 EXTERN uint	nscreens;
+
+#define screen_color(s,type) (col_isset(&(s)->type) ? &(s)->type : &def.type)
+#define selscreen_color(type) screen_color(selscreen,type)
 
 EXTERN struct {
 	Client*	focus;
@@ -352,7 +366,7 @@ EXTERN struct {
 
 EXTERN Client*	client;
 EXTERN View*	view;
-EXTERN View*	selview;
+EXTERN WMScreen* selscreen;
 EXTERN Key*	key;
 EXTERN Divide*	divs;
 EXTERN Client	c_magic;

@@ -49,7 +49,7 @@ framerect(Framewin *f) {
 
 	scrn = f->screen;
 	if (scrn == -1)
-		scrn = max(ownerscreen(f->f->r), 0);
+		scrn = max(ownerscreen(f->f->cr), 0);
 
 	/* Keep onscreen */
 	p = ZP;
@@ -81,7 +81,7 @@ framewin(Frame *f, Point pt, int orientation, int n) {
 	sethandler(fw->w, &handlers);
 
 	fw->f = f;
-	fw->screen = f->area->screen;
+	fw->screen = f->area->view->screen->idx;
 	fw->grabbox = f->grabbox;
 	frameadjust(fw, pt, orientation, n);
 	reshapewin(fw->w, framerect(fw));
@@ -126,16 +126,16 @@ static Handlers handlers = {
 
 static Area*
 find_area(Point pt) {
-	View *v;
 	Area *a;
 	int s;
 
-	v = selview;
 	for(s=0; s < nscreens; s++) {
-		if(!rect_haspoint_p(pt, screens[s]->r))
+		WMScreen *scrn = screens[s];
+		View *v = screen_selview(scrn);
+		if(!rect_haspoint_p(pt, scrn->r))
 			continue;
-		for(a=v->areas[s]; a; a=a->next)
-			if(pt.x < a->r.max.x)
+		for(a=v->areas; a; a=a->next)
+			if(pt.x < a->cr.max.x)
 				return a;
 	}
 	return nil;
@@ -151,17 +151,18 @@ vplace(Framewin *fw, Point pt) {
 	long l;
 	int hr;
 
-	v = selview;
+	/* TODO: this may need to be done for each visible view */
+	v = selview();
 
 	a = find_area(pt);
 	if(a == nil)
 		return;
 
 	fw->ra = a;
-	fw->screen = a->screen;
+	fw->screen = v->screen->idx;
 
-	pt.x = a->r.min.x;
-	frameadjust(fw, pt, OHoriz, Dx(a->r));
+	pt.x = a->cr.min.x;
+	frameadjust(fw, pt, OHoriz, Dx(a->cr));
 
 	r = fw->w->r;
 	hr = Dy(r)/2;
@@ -170,16 +171,16 @@ vplace(Framewin *fw, Point pt) {
 	if(a->frame == nil)
 		goto done;
 
-	vector_lpush(&vec, a->frame->r.min.y);
+	vector_lpush(&vec, a->frame->cr.min.y);
 	for(f=a->frame; f; f=f->anext) {
 		if(f == fw->f)
-			vector_lpush(&vec, f->r.min.y + 0*hr);
+			vector_lpush(&vec, f->cr.min.y + 0*hr);
 		else if(f->collapsed)
-			vector_lpush(&vec, f->r.min.y + 1*hr);
+			vector_lpush(&vec, f->cr.min.y + 1*hr);
 		else
-			vector_lpush(&vec, f->r.min.y + 2*hr);
+			vector_lpush(&vec, f->cr.min.y + 2*hr);
 		if(!f->collapsed && f->anext != fw->f)
-			vector_lpush(&vec, f->r.max.y - 2*hr);
+			vector_lpush(&vec, f->cr.max.y - 2*hr);
 	}
 
 	for(int i=0; i < vec.n; i++) {
@@ -192,8 +193,8 @@ vplace(Framewin *fw, Point pt) {
 	vector_lfree(&vec);
 
 done:
-	pt.x = a->r.min.x;
-	frameadjust(fw, pt, OHoriz, Dx(a->r));
+	pt.x = a->cr.min.x;
+	frameadjust(fw, pt, OHoriz, Dx(a->cr));
 	reshapewin(fw->w, framerect(fw));
 }
 
@@ -203,26 +204,27 @@ hplace(Framewin *fw, Point pt) {
 	View *v;
 	int minw;
 	
-	v = selview;
+	/* TODO: this may need to be done for each visible view */
+	v = selview();
 
 	a = find_area(pt);
 	if(a == nil)
 		return; /* XXX: Multihead. */
 
-	fw->screen = a->screen;
+	fw->screen = v->screen->idx;
 	fw->ra = nil;
 	minw = column_minwidth();
-	if(abs(pt.x - a->r.min.x) < minw/2) {
-		pt.x = a->r.min.x;
+	if(abs(pt.x - a->cr.min.x) < minw/2) {
+		pt.x = a->cr.min.x;
 		fw->ra = a->prev;
 	}
-	else if(abs(pt.x - a->r.max.x) < minw/2) {
-		pt.x = a->r.max.x;
+	else if(abs(pt.x - a->cr.max.x) < minw/2) {
+		pt.x = a->cr.max.x;
 		fw->ra = a;
 	}
 
-	pt.y = a->r.min.y;
-	frameadjust(fw, pt, OVert, Dy(a->r));
+	pt.y = a->cr.min.y;
+	frameadjust(fw, pt, OVert, Dy(a->cr));
 	reshapewin(fw->w, framerect(fw));	
 }
 
@@ -230,7 +232,7 @@ static Point
 grabboxcenter(Frame *f) {
 	Point p;
 
-	p = addpt(f->r.min, f->grabbox.min);
+	p = addpt(f->cr.min, f->grabbox.min);
 	p.x += Dx(f->grabbox)/2;
 	p.y += Dy(f->grabbox)/2;
 	return p;
@@ -286,8 +288,8 @@ mouse_movegrabbox(Client *c, bool grabmod) {
 	SET(y);
 	if(grabmod) {
 		p = querypointer(f->client->framewin);
-		x = (float)p.x / Dx(f->r);
-		y = (float)p.y / Dy(f->r);
+		x = (float)p.x / Dx(f->cr);
+		y = (float)p.y / Dy(f->cr);
 	}
 
 	if(f->area->floating)
@@ -296,8 +298,8 @@ mouse_movegrabbox(Client *c, bool grabmod) {
 		trampoline(THCol, f, true);
 
 	if(grabmod)
-		warppointer(addpt(f->r.min, Pt(x * Dx(f->r),
-					       y * Dy(f->r))));
+		warppointer(addpt(f->cr.min, Pt(x * Dx(f->cr),
+					       y * Dy(f->cr))));
 	else
 		warppointer(grabboxcenter(f));
 }
@@ -374,7 +376,7 @@ column_drop(Area *a, Frame *f, int y) {
 	for(ff=a->frame; ff; ff=ff->anext)
 		assert(ff != f);
 
-	if(a->frame == nil || y <= a->frame->r.min.y) {
+	if(a->frame == nil || y <= a->frame->cr.min.y) {
 		f->collapsed = true;
 		f->colr.min.y = 0;
 		f->colr.max.y = labelh(def.font);
@@ -417,9 +419,9 @@ thcol(Frame *f) {
 		return TDone;
 
 	pt = querypointer(&scr.root);
-	pt2.x = f->area->r.min.x;
+	pt2.x = f->area->cr.min.x;
 	pt2.y = pt.y;
-	fw = framewin(f, pt2, OHoriz, Dx(f->area->r));
+	fw = framewin(f, pt2, OHoriz, Dx(f->area->cr));
 
 	vplace(fw, pt);
 	for(;;)
@@ -444,7 +446,7 @@ thcol(Frame *f) {
 				if(!f->collapsed)
 					if(fp)
 						fp->colr.max.y = f->colr.max.y;
-					else if(fn && fw->pt.y > fn->r.min.y)
+					else if(fn && fw->pt.y > fn->cr.min.y)
 						fn->colr.min.y = f->colr.min.y;
 			}
 
@@ -461,7 +463,7 @@ thcol(Frame *f) {
 			}
 
 
- 			if(!a->frame && !a->floating && a->view->areas[a->screen]->next)
+ 			if(!a->frame && !a->floating && a->view->areas->next)
  				area_destroy(a);
 
 			frame_focus(f);
@@ -494,10 +496,9 @@ tvcol(Frame *f) {
 
 	pt = querypointer(&scr.root);
 	pt2.x = pt.x;
-	pt2.y = f->area->r.min.y;
+	pt2.y = f->area->cr.min.y;
 
-	scrn = f->area->screen > -1 ? f->area->screen : find_area(pt) ? find_area(pt)->screen : 0;
-	r = f->view->r[scrn];
+	r = view_rect(f->view);
 	fw = framewin(f, pt2, OVert, Dy(r));
 
 	r.min.y += fw->grabbox.min.y + Dy(fw->grabbox)/2;
@@ -527,7 +528,7 @@ tvcol(Frame *f) {
 			if(button != 1)
 				continue;
 			if(fw->ra) {
-				fw->ra = column_new(f->view, fw->ra, screen->idx, 0);
+				fw->ra = column_new(f->view, fw->ra, 0);
 				area_moveto(fw->ra, f);
 			}
 			goto done;
@@ -565,8 +566,8 @@ tfloat(Frame *f) {
 		return TDone;
 
 	rects = view_rects(f->view, &nrect, f);
-	origin = f->r;
-	frect = f->r;
+	origin = f->cr;
+	frect = f->cr;
 
 	pt = querypointer(&scr.root);
 	/* pt1 = grabboxcenter(f); */

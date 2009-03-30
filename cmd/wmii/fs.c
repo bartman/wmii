@@ -16,6 +16,7 @@ union IxpFileIdU {
 	Client*		client;
 	Ruleset*	rule;
 	View*		view;
+	WMScreen*       screen;
 	char*		buf;
 	void*		ref;
 };
@@ -33,6 +34,8 @@ enum {	/* Dirs */
 	FsDDebug,
 	FsDTag,
 	FsDTags,
+	FsDScreen,
+	FsDScreens,
 	FsRoot,
 	/* Files */
 	FsFBar,
@@ -47,6 +50,7 @@ enum {	/* Dirs */
 	FsFTagRules,
 	FsFTctl,
 	FsFTindex,
+	FsFSctl,
 	FsFprops,
 };
 
@@ -86,6 +90,7 @@ dirtab_root[]=	 {{".",		QTDIR,		FsRoot,		0500|DMDIR },
 		  {"debug",	QTDIR,		FsDDebug,	0500|DMDIR, FLHide },
 		  {"client",	QTDIR,		FsDClients,	0500|DMDIR },
 		  {"tag",	QTDIR,		FsDTags,	0500|DMDIR },
+		  {"screen",	QTDIR,		FsDScreens,	0500|DMDIR },
 		  {"ctl",	QTAPPEND,	FsFRctl,	0600|DMAPPEND },
 		  {"colrules",	QTFILE,		FsFColRules,	0600 },
 		  {"event",	QTFILE,		FsFEvent,	0600 },
@@ -113,6 +118,14 @@ dirtab_tags[]=	 {{".",		QTDIR,		FsDTags,	0500|DMDIR },
 dirtab_tag[]=	 {{".",		QTDIR,		FsDTag,		0500|DMDIR },
 		  {"ctl",	QTAPPEND,	FsFTctl,	0600|DMAPPEND },
 		  {"index",	QTFILE,		FsFTindex,	0400 },
+		  {nil}},
+dirtab_screens[]={{".",		QTDIR,		FsDScreens,	0500|DMDIR },
+		  {"",		QTDIR,		FsDScreen,	0500|DMDIR },
+		  {nil}},
+dirtab_screen[]= {{".",		QTDIR,		FsDScreen,	0500|DMDIR },
+		  {"ctl",	QTAPPEND,	FsFSctl,	0600|DMAPPEND },
+		  {"rbar",	QTDIR,		FsDBars,	0700|DMDIR },
+		  {"lbar",	QTDIR,		FsDBars,	0700|DMDIR },
 		  {nil}};
 static IxpDirtab* dirtab[] = {
 	[FsRoot] = dirtab_root,
@@ -122,6 +135,8 @@ static IxpDirtab* dirtab[] = {
 	[FsDDebug] = dirtab_debug,
 	[FsDTags] = dirtab_tags,
 	[FsDTag] = dirtab_tag,
+	[FsDScreens] = dirtab_screens,
+	[FsDScreen] = dirtab_screen,
 };
 typedef char* (*MsgFunc)(void*, IxpMsg*);
 
@@ -132,6 +147,7 @@ event(const char *format, ...) {
 	va_start(ap, format);
 	vsnprint(buffer, sizeof buffer, format, ap);
 	va_end(ap);
+printf("WMII EVENT OUT: %s", buffer);
 
 	ixp_pending_write(&events, buffer, strlen(buffer));
 }
@@ -224,6 +240,7 @@ lookup_file(IxpFileId *parent, char *name)
 	Client *c;
 	View *v;
 	Bar *b;
+	WMScreen *s, **sp;
 	uint id;
 	int i;
 
@@ -285,11 +302,12 @@ lookup_file(IxpFileId *parent, char *name)
 				break;
 			case FsDTags:
 				if(!name || !strcmp(name, "sel")) {
-					if(selview) {
+					View *curview = selview();
+					if(curview) {
 						push_file("sel");
 						file->volatil = true;
-						file->p.view = selview;
-						file->id = selview->id;
+						file->p.view = curview;
+						file->id = curview->id;
 					}
 					if(name)
 						goto LastItem;
@@ -302,6 +320,25 @@ lookup_file(IxpFileId *parent, char *name)
 						file->id = v->id;
 						if(name)
 							goto LastItem;
+					}
+				}
+				break;
+			case FsDScreens:
+				if(!name || !strcmp(name, "sel")) {
+					if(selscreen) {
+						push_file("sel");
+						file->volatil = true;
+						file->p.screen = selscreen;
+						file->id = selscreen->idx;
+					}if(name) goto LastItem;
+				}
+				for (sp=screens; (s = *sp); sp++) {
+					if(!name || !strcmp(name, s->name)) {
+						push_file(s->name);
+						file->volatil = true;
+						file->p.screen = s;
+						file->id = s->idx;
+						if(name) goto LastItem;
 					}
 				}
 				break;
@@ -326,13 +363,18 @@ lookup_file(IxpFileId *parent, char *name)
 			file->index = parent->index;
 			/* Special considerations: */
 			switch(file->tab.type) {
-			case FsDBars:
+			case FsDBars: {
+				struct WMScreen *scrn = screens[0];
+				if(parent->tab.type == FsDScreen)
+					scrn = parent->p.screen;
+					
 				if(!strcmp(file->tab.name, "lbar"))
-					file->p.bar_p = &screen[0].bar[BLeft];
+					file->p.bar_p = &scrn->bar[BLeft];
 				else
-					file->p.bar_p = &screen[0].bar[BRight];
+					file->p.bar_p = &scrn->bar[BRight];
 				file->id = (int)(uintptr_t)file->p.bar_p;
 				break;
+				}
 			case FsFColRules:
 				file->p.rule = &def.colrules;
 				break;
@@ -488,6 +530,12 @@ fs_read(Ixp9Req *r) {
 			ixp_srv_readbuf(r, buf, n);
 			respond(r, nil);
 			return;
+		case FsFSctl:
+			buf = readctl_screen(f->p.screen);
+			n = strlen(buf);
+			ixp_srv_readbuf(r, buf, n);
+			respond(r, nil);
+			return;
 		}
 	}
 	/* This should not be called if the file is not open for reading. */
@@ -547,6 +595,9 @@ fs_write(Ixp9Req *r) {
 		r->ofcall.io.count = i - r->ifcall.io.offset;
 		respond(r, nil);
 		return;
+	case FsFSctl:
+		mf = (MsgFunc)message_screen;
+		goto msg;
 	case FsFCctl:
 		mf = (MsgFunc)message_client;
 		goto msg;

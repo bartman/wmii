@@ -19,6 +19,8 @@ char*	history_search(int, char*, int);
 /* main.c */
 void	debug(int, const char*, ...);
 Item*	filter_list(Item*, char*);
+char*	histtext(Item*);
+void    distribute_views_on_screens(void);
 void	init_screens(int);
 void	update_filter(bool);
 void	update_input(void);
@@ -48,4 +50,3 @@ bool	render_argb_p(Visual*);
 void	xext_event(XEvent*);
 void	xext_init(void);
 Rectangle*	xinerama_screens(int*);
-
