@@ -201,7 +201,7 @@ focusin(XFocusChangeEvent *ev) {
 	if(ev->detail == NotifyDetailNone) {
 		print_focus("focusin", &c_magic, "<magic[none]>");
 		disp.focus = &c_magic;
-		setfocus(screen->barwin, RevertToParent);
+		setfocus(selscreen->barwin, RevertToParent);
 		return;
 	}
 
@@ -214,7 +214,7 @@ focusin(XFocusChangeEvent *ev) {
 	if((ev->mode == NotifyWhileGrabbed) && (disp.hasgrab != &c_root))
 		return;
 
-	if(ev->window == screen->barwin->w) {
+	if(ev->window == selscreen->barwin->w) {
 		print_focus("focusin", nil, "<nil>");
 		disp.focus = nil;
 	}

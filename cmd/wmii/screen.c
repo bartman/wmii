@@ -79,6 +79,33 @@ findscreen(Rectangle rect, int direction) {
 }
 #endif
 
+WMScreen *findscreen(Point pt)
+{
+	WMScreen *s, **sp;
+
+	for(sp=screens; (s = *sp); sp++) {
+		if (rect_haspoint_p(pt, s->r))
+			return s;
+	}
+
+	return NULL;
+}
+
+WMScreen *findscreen_by_name(const char *name)
+{
+	WMScreen *s, **sp;
+
+	if (!name || !strcmp(name, "sel"))
+		return selscreen;
+
+	for(sp=screens; (s = *sp); sp++) {
+		if (!strcmp(name, s->name))
+			return s;
+	}
+
+	return NULL;
+}
+
 static Rectangle
 leastthing(Rectangle rect, int direction, Vector_ptr *vec, Rectangle (*key)(void*)) {
 	void *p;
@@ -188,5 +215,80 @@ ownerscreen(Rectangle r) {
 		}
 	}
 	return best;
+}
+
+View*
+screen_selview(WMScreen *s) {
+	if (s)
+		return s->selview;
+	return NULL;
+}
+
+void
+screen_update(WMScreen *s) {
+	View *v = s->selview;
+	if(v)
+		view_update(v);
+}
+
+void
+screen_check_change(Window *w, XCrossingEvent *ev)
+{
+	Point pt = Pt(ev->x_root, ev->y_root);
+	WMScreen *s;
+
+	s = findscreen(pt);
+
+	screen_change(s, CurrentArea);
+}
+
+void
+screen_change(WMScreen *s, int select_area)
+{
+	View *v, *ov;
+	Area *oa, *a;
+	WMScreen *os;
+
+	if (!s || s == selscreen)
+		return;
+
+	os = selscreen;
+	ov = screen_selview(os);
+	oa = ov ? ov->sel : NULL;
+
+	event("UnfocusScreen %s\n", os->name);
+
+	selscreen = s;
+	event("FocusScreen %s\n", s->name);
+
+	v = screen_selview(s);
+	if (!v)
+		return;
+
+	event("FocusTag %s %s\n", v->name, s->name);
+
+	a = NULL;
+	if (oa && oa->floating && v->floating)
+		a = v->floating;
+
+	else
+		switch(select_area) {
+		case FirstArea:
+			a = v->areas;
+			break;
+		case LastArea:
+			if (v->areas)
+				a = v->areas->prev;
+			break;
+		default:
+			a = v->sel;
+			break;
+		}
+
+	if (a)
+		area_focus(a);
+
+	if (v->sel)
+		event("AreaFocus %a %s\n", v->sel, s->name);
 }
 

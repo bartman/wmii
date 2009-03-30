@@ -201,8 +201,8 @@ client_manage(Client *c) {
 	Frame *f;
 	char *tags;
 
-	if(Dx(c->r) == Dx(screen->r))
-	if(Dy(c->r) == Dy(screen->r))
+	if(Dx(c->r) == Dx(selscreen->r))
+	if(Dy(c->r) == Dy(selscreen->r))
 	if(c->w.ewmh.type == 0)
 		fullscreen(c, true);
 
@@ -226,7 +226,7 @@ client_manage(Client *c) {
 		apply_tags(c, "sel");
 
 	if(!starting)
-		view_update_all();
+		view_update_all(selscreen);
 
 	bool newgroup = !c->group
 		     || c->group->ref == 1
@@ -267,7 +267,7 @@ client_destroy(Client *c) {
 	r = client_grav(c, ZR);
 
 	hide = false;	
-	if(!c->sel || c->sel->view != selview)
+	if(!c->sel || !view_isvisible(c->sel->view))
 		hide = true;
 
 	XGrabServer(display);
@@ -277,7 +277,7 @@ client_destroy(Client *c) {
 
 	sethandler(&c->w, nil);
 	if(hide)
-		reparentwindow(&c->w, &scr.root, screen->r.max);
+		reparentwindow(&c->w, &scr.root, selscreen->r.max);
 	else
 		reparentwindow(&c->w, &scr.root, r.min);
 
@@ -315,9 +315,8 @@ client_viewframe(Client *c, View *v) {
 
 Client*
 selclient(void) {
-	if(selview->sel->sel)
-		return selview->sel->sel->client;
-	return nil;
+	View *v = selview();
+	return view_selclient(v);
 }
 
 Client*
@@ -473,8 +472,10 @@ focus(Client *c, bool user) {
 	 */
 
 	v = f->view;
-	if(v != selview)
-		view_focus(screen, v);
+	if(!view_isvisible(v))
+		/* TODO: does this need to be focused on the selscreen or the
+		 * screen the client is on? */
+		view_focus(selscreen, v);
 	frame_focus(c->sel);
 }
 
@@ -501,7 +502,9 @@ client_focus(Client *c) {
 				client_message(c, "WM_TAKE_FOCUS", 0);
 			}
 		}else
-			setfocus(screen->barwin, RevertToParent);
+			/* TODO: is this expecting the screen of the client or
+			 * the selected screen? */
+			setfocus(selscreen->barwin, RevertToParent);
 		event("ClientFocus %C\n", c);
 
 		sync();
@@ -513,28 +516,40 @@ void
 client_resize(Client *c, Rectangle r) {
 	Frame *f;
 
+#if 1
+#define swap(a,b) ({ \
+		__typeof__(a) __tmp = (a); \
+		(a) = (b); \
+		(b) = __tmp; \
+		})
+	if (r.min.x > r.max.x)
+		swap(r.min.x, r.max.x);
+	if (r.min.y > r.max.y)
+		swap(r.min.y, r.max.y);
+#endif
+
 	f = c->sel;
 	frame_resize(f, r);
 
-	if(f->view != selview) {
+	if(! view_isvisible(f->view)) {
 		client_unmap(c, IconicState);
 		unmap_frame(c);
 		return;
 	}
 
-	c->r = rectaddpt(f->crect, f->r.min);
+	c->r = rectaddpt(f->crect, f->cr.min);
 
 	if(f->collapsed) {
 		if(f->area->max && !resizing)
 			unmap_frame(c);
 		else {
-			reshapewin(c->framewin, f->r);
+			reshapewin(c->framewin, f->cr);
 			map_frame(c);
 		}
 		client_unmap(c, IconicState);
 	}else {
 		client_map(c);
-		reshapewin(c->framewin, f->r);
+		reshapewin(c->framewin, f->cr);
 		reshapewin(&c->w, f->crect);
 		map_frame(c);
 		client_configure(c);
@@ -607,8 +622,8 @@ fullscreen(Client *c, int fullscreen) {
 		for(f=c->frame; f; f=f->cnext) {
 			if(f->oldarea == 0) {
 				frame_resize(f, f->floatr);
-				if(f->view == selview) /* FIXME */
-					client_resize(f->client, f->r);
+				if(view_isvisible(f->view)) /* FIXME */
+					client_resize(f->client, f->cr);
 
 			}
 			else if(f->oldarea > 0) {
@@ -646,7 +661,7 @@ client_seturgent(Client *c, bool urgent, int from) {
 		c->urgent = urgent;
 		ewmh_updatestate(c);
 		if(c->sel) {
-			if(c->sel->view == selview)
+			if(view_isvisible(c->sel->view))
 				frame_draw(c->sel);
 			for(f=c->frame; f; f=f->cnext) {
 				SET(ff);
@@ -859,7 +874,9 @@ destroy_event(Window *w, XDestroyWindowEvent *e) {
 static void
 enter_event(Window *w, XCrossingEvent *e) {
 	Client *c;
-	
+
+	screen_check_change(w, e);
+
 	c = w->aux;
 	if(e->detail != NotifyInferior) {
 		if(e->detail != NotifyVirtual)
@@ -976,7 +993,7 @@ client_setviews(Client *c, char **tags) {
 		if(*tags) {
 			if(!*fp || cmp > 0) {
 				f = frame_create(c, view_create(*tags));
-				if(f->view == selview || !c->sel)
+				if(!c->sel || view_isvisible(f->view))
 					c->sel = f;
 				kludge = c; /* FIXME */
 				view_attach(f->view, f);
@@ -1050,6 +1067,36 @@ client_extratags(Client *c) {
 	return s;
 }
 
+static View*
+client_default_view(void)
+{
+	View *v;
+
+	v = selview();
+	if (v)
+		return v;
+
+	// this will only happen if we just started and don't
+	// have a view assigned on the current screen
+	if (!v)
+		for (int s=0; s<nscreens; s++) {
+			WMScreen *scrn = screens[s];
+			if (!scrn->selview)
+				continue;
+			// another screen has a view
+			v = scrn->selview;
+			selscreen = scrn;
+			return v;
+		}
+
+	// we will only get here if there are no views at all
+	// so we make one up...
+	v = view_create(selscreen->name);
+	view_focus(selscreen, v);
+
+	return v;
+}
+
 void
 apply_tags(Client *c, const char *tags) {
 	uint i, j, k, n;
@@ -1120,9 +1167,10 @@ apply_tags(Client *c, const char *tags) {
 		if(!strcmp(buf+n, "~"))
 			c->floating = add;
 		else
-		if(!strcmp(buf+n, "!") || !strcmp(buf+n, "sel"))
-			cur = selview->name;
-		else
+		if(!strcmp(buf+n, "!") || !strcmp(buf+n, "sel")) {
+			View *v = client_default_view();
+			cur = v->name;
+		} else
 		if(!Mbsearch(buf+n, badtags, bsstrcmp))
 			cur = buf+n;
 

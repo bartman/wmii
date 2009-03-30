@@ -84,7 +84,6 @@ bar_create(Bar **bp, const char *name) {
 	b = emallocz(sizeof *b);
 	b->id = id++;
 	utflcpy(b->name, name, sizeof b->name);
-	b->col = def.normcolor;
 	
 	for(sp=screens; (s = *sp); sp++) {
 		i = bp - s->bar;
@@ -93,6 +92,7 @@ bar_create(Bar **bp, const char *name) {
 	}
 	b->bar = i;
 	b->screen = s;
+	memcpy(&b->col, screen_color(s, normcolor), sizeof(b->col));
 
 	for(; *bp; bp = &bp[0]->next)
 		if(strcmp(bp[0]->name, name) >= 0)
@@ -118,6 +118,7 @@ bar_draw(WMScreen *s) {
 	Bar *b, *tb, *largest, **pb;
 	Rectangle r;
 	Align align;
+	CTuple *nc;
 	uint width, tw;
 	float shrink;
 
@@ -167,8 +168,9 @@ bar_draw(WMScreen *s) {
 	}
 
 	r = rectsubpt(s->brect, s->brect.min);
-	fill(disp.ibuf, r, def.normcolor.bg);
-	border(disp.ibuf, r, 1, def.normcolor.border);
+	nc = screen_color(s, normcolor);
+	fill(disp.ibuf, r, nc->bg);
+	border(disp.ibuf, r, 1, nc->border);
 	foreach_bar(s, b) {
 		align = Center;
 		if(b == s->bar[BRight])

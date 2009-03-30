@@ -12,6 +12,7 @@ uint	flushevents(long, bool);
 void	history_dump(const char*, int);
 char*	history_search(int, char*, int);
 char*	histtext(Item*);
+void    distribute_views_on_screens(void);
 void	init_screens(int);
 void	menu_init(void);
 void	menu_show(void);
@@ -33,4 +34,3 @@ bool	render_argb_p(Visual*);
 void	xext_event(XEvent*);
 void	xext_init(void);
 Rectangle*	xinerama_screens(int*);
-

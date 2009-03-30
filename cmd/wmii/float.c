@@ -12,7 +12,7 @@ float_attach(Area *a, Frame *f) {
 
 	f->client->floating = true;
 
-	f->r = f->floatr;
+	f->cr = f->floatr;
 	float_placeframe(f);
 	assert(a->sel != f);
 	frame_insert(f, a->sel);
@@ -53,7 +53,7 @@ float_detach(Frame *f) {
 void
 float_resizeframe(Frame *f, Rectangle r) {
 
-	if(f->area->view == selview)
+	if(view_isvisible(f->area->view))
 		client_resize(f->client, r);
 	else
 		frame_resize(f, r);
@@ -79,7 +79,7 @@ float_arrange(Area *a) {
 		break;
 	}
 	for(f=a->frame; f; f=f->anext)
-		f->r = f->floatr;
+		f->cr = f->floatr;
 	view_update(a->view);
 }
 
@@ -164,7 +164,8 @@ float_placeframe(Frame *f) {
 	Frame *ff;
 	Area *a, *sel;
 	long area, l;
-	int i, s;
+	WMScreen *s;
+	int i;
 
 	a = f->area;
 	c = f->client;
@@ -175,7 +176,7 @@ float_placeframe(Frame *f) {
 	*/
 
 	if(c->fullscreen >= 0 || c->w.hints->position || starting) {
-		f->r = f->floatr;
+		f->cr = f->floatr;
 		return;
 	}
 
@@ -189,33 +190,22 @@ float_placeframe(Frame *f) {
 		 * its old rectangle winds up in the list.
 		 */
 		if(ff->client != f->client)
-			vector_rpush(&vec, ff->r);
+			vector_rpush(&vec, ff->cr);
 
 	/* Decide which screen we want to place this on.
 	 * Ideally, it should probably Do the Right Thing
 	 * when a screen fills, but what's the right thing?
 	 * I think usage will show...
 	 */
-	s = -1;
-	ff = client_groupframe(c, f->view);
-	if (ff)
-		s = ownerscreen(ff->r);
-	else if (selclient())
-		s = ownerscreen(selclient()->sel->r);
-	else {
-		sel = view_findarea(a->view, a->view->selcol, false);
-		if (sel)
-			s = sel->screen;
-	}
-
-	r = a->r;
-	if (s > -1)
-		r = screens[s]->r;
+	r = a->cr;
+	s = selscreen;
+	if (s)
+		r = s->r;
 	vp = unique_rects(&vec, r);
 
 	area = LONG_MAX;
-	dim.x = Dx(f->r);
-	dim.y = Dy(f->r);
+	dim.x = Dx(f->cr);
+	dim.y = Dy(f->cr);
 	p = ZP;
 
 	for(i=0; i < vp->n; i++) {
@@ -233,12 +223,12 @@ float_placeframe(Frame *f) {
 		/* Cascade. */
 		ff = a->sel;
 		if(ff)
-			p = addpt(ff->r.min, Pt(Dy(ff->titlebar), Dy(ff->titlebar)));
-		if(p.x + Dx(f->r) > Dx(screen->r) ||
-		   p.y + Dy(f->r) > screen->brect.min.y)
+			p = addpt(ff->cr.min, Pt(Dy(ff->titlebar), Dy(ff->titlebar)));
+		if(p.x + Dx(f->cr) > Dx(selscreen->r) ||
+		   p.y + Dy(f->cr) > selscreen->brect.min.y)
 			p = ZP;
 	}
 
-	f->floatr = rectsetorigin(f->r, p);
+	f->floatr = rectsetorigin(f->cr, p);
 }
 

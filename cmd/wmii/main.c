@@ -152,11 +152,73 @@ ErrorCode ignored_xerrors[] = {
 	{ X_GetAtomName, BadAtom },
 };
 
+#if 1
+#include <stdio.h>
+#include <stdarg.h>
+
+void bart_dbg(const char *fmt, ...)
+{
+	FILE *f;
+	va_list ap;
+	va_start(ap, fmt);
+	vfprintf(stderr,fmt, ap);
+	va_end(ap);
+	f = fopen("/tmp/wmii.log", "a+");
+	if (f) {
+		va_start(ap, fmt);
+		vfprintf(f,fmt, ap);
+		va_end(ap);
+		fclose(f);
+	}
+}
+void bart_dump_screens_and_views(const char *why)
+{
+	int i;
+	View *v;
+	WMScreen *s;
+
+	bart_dbg("XXX -- %s ... v/s: ", why);
+	for(v=view; v; v=v->next) {
+		char *bad = NULL;
+
+		s = v->screen;
+		if (s && (s->selview != v))
+			bad = s->selview ? s->selview->name : "NULL";
+
+		bart_dbg("%s/%s%s%s%s ",
+				v->name, s ? s->name : "",
+				bad ? " (BAD: s->v=" : "",
+				bad ? bad : "",
+				bad ? ")   " : "");
+	}
+
+	for(i=0; i < nscreens; i++) {
+
+		s = screens[i];
+		v = s->selview;
+
+		if (v) {
+			if (v->screen == s)
+				continue;
+
+			bart_dbg("%s/%s (BAD v->s=%s)   ", v->name, s->name,
+					v->screen ? v->screen->name : "NULL");
+		} else {
+
+			bart_dbg("/%s ", s->name);
+		}
+	}
+
+	bart_dbg("\n");
+}
+#endif
+
 void
 init_screens(void) {
 	Rectangle *rects;
 	View *v;
-	int i, n, m;
+	int s, n, m;
+	Point pt;
 
 #ifdef notdef
 	d.x = Dx(scr.rect) - Dx(screen->r);
@@ -172,16 +234,14 @@ init_screens(void) {
 	m = max(n, nscreens);
 	screens = erealloc(screens, (m + 1) * sizeof *screens);
 	screens[m] = nil;
-	for(v=view; v; v=v->next) {
+	for(v=view; v; v=v->next)
 		v->areas = erealloc(v->areas, m * sizeof *v->areas);
-		v->r = erealloc(v->r, m * sizeof *v->r);
-	}
 
-	for(i=nscreens; i < m; i++) {
-		screens[i] = emallocz(sizeof *screens[i]);
-		for(v=view; v; v=v->next)
-			view_init(v, i);
-	}
+	for(s=nscreens; s < m; s++)
+		screens[s] = emallocz(sizeof *screens[s]);
+
+	for(v=view; v; v=v->next)
+		view_init(v);
 
 	nscreens = m;
 
@@ -196,22 +256,65 @@ init_screens(void) {
 	disp.ibuf32 = ibuf32;
 
 	/* Resize and initialize screens. */
-	for(i=0; i < nscreens; i++) {
-		screen = screens[i];
-		screen->idx = i;
+	for(s=0; s < nscreens; s++) {
+		WMScreen *screen = screens[s];
 
-		screen->showing = i < n;
+		screen->idx = s;
+		/* FIXME: this could be the xrandr name like VGA or LVDS */
+		snprintf(screen->name, sizeof(screen->name), "%d", s);
+
+		screen->showing = s < n;
 		if(screen->showing)
-			screen->r = rects[i];
+			screen->r = rects[s];
 		else
 			screen->r = rectsetorigin(screen->r, scr.rect.max);
 		def.snap = Dy(screen->r) / 63;
-		bar_init(screens[i]);
+		bar_init(screens[s]);
 	}
-	screen = screens[0];
-	if(selview)
-		view_update(selview);
+
+	pt = querypointer(&scr.root);
+	selscreen = findscreen(pt);
+	if (!selscreen)
+		selscreen = screens[0];
+
+	for(s=0; s < nscreens; s++) {
+		WMScreen *screen = screens[s];
+		screen_update(screen);
+	}
 }
+
+void
+distribute_views_on_screens(void)
+{
+	int i;
+
+	for(i=0; i < nscreens; i++) {
+		WMScreen *screen = screens[i];
+		char buf[256], *new_view_name = NULL;
+		View *v;
+		int num = 1;
+		for(v=view; v; v=v->next) {
+			if (v->screen && v->screen != screen)
+				continue;
+			new_view_name = v->name;
+			break;
+		}
+		selscreen = screen;
+		while (!new_view_name && num<100) {
+			snprintf(buf, sizeof buf, "%u", num);
+			v = view_create(buf);
+			if (v && (!v->screen || v->screen == screen)) {
+				new_view_name = v->name;
+				break;
+			}
+			num ++;
+		}
+		if (new_view_name)
+			view_select(new_view_name);
+	}
+	selscreen = findscreen(querypointer(&scr.root));
+}
+
 
 static void
 cleanup(void) {
@@ -410,16 +513,23 @@ extern int fmtevent(Fmt*);
 	root_init();
 
 	disp.focus = nil;
-	setfocus(screen->barwin, RevertToParent);
-	view_select("1");
+	for(i=0; i < nscreens; i++) {
+		WMScreen *screen = screens[i];
+		setfocus(screen->barwin, RevertToParent);
+	}
 
 	scan_wins();
 	starting = false;
 
-	view_update_all();
+	distribute_views_on_screens();
+
+	for(i=0; i < nscreens; i++) {
+		WMScreen *screen = screens[i];
+		view_update_all(screen);
+	}
 	ewmh_updateviews();
 
-	event("FocusTag %s\n", selview->name);
+	event("FocusTag %s %s\n", selview()->name, selscreen->name);
 
 	i = ixp_serverloop(&srv);
 	if(i)

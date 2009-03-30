@@ -81,11 +81,11 @@ column_getmode(Area *a) {
 }
 
 Area*
-column_new(View *v, Area *pos, int scrn, uint w) {
+column_new(View *v, Area *pos, uint w) {
 	Area *a;
 
-	assert(!pos || !pos->floating && pos->screen == scrn);
-	a = area_create(v, pos, scrn, w);
+	assert(!pos || !pos->floating);
+	a = area_create(v, pos, w);
 	return a;
 #if 0
 	if(!a)
@@ -130,7 +130,7 @@ stack_scale(Frame *first, int height) {
 	 */
 	surplus = height - dy;
 	for(f=first; f && !f->collapsed; f=f->anext)
-		f->colr.max.y += ((float)Dy(f->r) / dy) * surplus;
+		f->colr.max.y += ((float)Dy(f->cr) / dy) * surplus;
 }
 
 static void
@@ -221,7 +221,7 @@ find(Area **ap, Frame **fp, int dir, bool wrap, bool stack) {
 
 	f = *fp;
 	a = *ap;
-	r = f ? f->r : a->r;
+	r = f ? f->cr : a->cr;
 
 	if(dir == North || dir == South) {
 		*fp = stack_find(a, f, dir, stack);
@@ -248,7 +248,7 @@ column_attach(Area *a, Frame *f) {
 	Frame *first;
 	int nframe, dy, h;
 
-	f->colr = a->r;
+	f->colr = a->cr;
 
 	if(a->sel) {
 		stack_info(a->sel, &first, nil, &dy, &nframe);
@@ -276,7 +276,7 @@ column_detach(Frame *f) {
 		if(first)
 			stack_scale(first, dy);
 		column_arrange(a, false);
-	}else if(a->view->areas[a->screen]->next)
+	}else if(a->view->areas->next)
 		area_destroy(a);
 }
 
@@ -289,18 +289,18 @@ column_attachrect(Area *a, Frame *f, Rectangle r) {
 
 	pos = nil;
 	for(fp=a->frame; fp; pos=fp, fp=fp->anext) {
-		if(r.max.y < fp->r.min.y)
+		if(r.max.y < fp->cr.min.y)
 			continue;
-		before = fp->r.min.y - r.min.y;
-		after = r.max.y - fp->r.max.y;
+		before = fp->cr.min.y - r.min.y;
+		after = r.max.y - fp->cr.max.y;
 		if(abs(before) <= abs(after))
 			break;
 	}
-	if(Dy(a->r) > Dy(r)) {
+	if(Dy(a->cr) > Dy(r)) {
 		/* Kludge. */
-		a->r.max.y -= Dy(r);
+		a->cr.max.y -= Dy(r);
 		column_scale(a);
-		a->r.max.y += Dy(r);
+		a->cr.max.y += Dy(r);
 	}
 	column_insert(a, f, pos);
 	column_scale(a);
@@ -336,9 +336,9 @@ column_surplus(Area *a) {
 	Frame *f;
 	int surplus;
 
-	surplus = Dy(a->r);
+	surplus = Dy(a->cr);
 	for(f=a->frame; f; f=f->anext)
-		surplus -= Dy(f->r);
+		surplus -= Dy(f->cr);
 	return surplus;
 }
 
@@ -376,12 +376,12 @@ column_fit(Area *a, uint *ncolp, uint *nuncolp) {
 	}
 
 	/* FIXME: Kludge. */
-	dy = Dy(a->view->r[a->screen]) - Dy(a->r);
+	dy = Dy(view_rect(a->view)) - Dy(a->cr);
 	minh = colh * (ncol + nuncol - 1) + uncolh;
-	if(dy && Dy(a->r) < minh)
-		a->r.max.y += min(dy, minh - Dy(a->r));
+	if(dy && Dy(a->cr) < minh)
+		a->cr.max.y += min(dy, minh - Dy(a->cr));
 
-	surplus = Dy(a->r)
+	surplus = Dy(a->cr)
 		- (ncol * colh)
 		- (nuncol * uncolh);
 
@@ -451,22 +451,22 @@ column_settle(Area *a) {
 		fprint(2, "%s: Badness: surplus = %d in column_settle, column %d, view %q\n",
 				argv0, surplus, area_idx(a), a->view->name);
 
-	yoff = a->r.min.y;
+	yoff = a->cr.min.y;
 	yoffcr = yoff;
 	n = surplus % nuncol;
 	surplus /= nuncol;
 	for(f=a->frame; f; f=f->anext) {
-		f->r = rectsetorigin(f->r, Pt(a->r.min.x, yoff));
-		f->colr = rectsetorigin(f->colr, Pt(a->r.min.x, yoffcr));
-		f->r.min.x = a->r.min.x;
-		f->r.max.x = a->r.max.x;
+		f->cr = rectsetorigin(f->cr, Pt(a->cr.min.x, yoff));
+		f->colr = rectsetorigin(f->colr, Pt(a->cr.min.x, yoffcr));
+		f->cr.min.x = a->cr.min.x;
+		f->cr.max.x = a->cr.max.x;
 		if(def.incmode == ISqueeze && !resizing)
 		if(!f->collapsed) {
-			f->r.max.y += surplus;
+			f->cr.max.y += surplus;
 			if(n-- > 0)
-				f->r.max.y++;
+				f->cr.max.y++;
 		}
-		yoff = f->r.max.y;
+		yoff = f->cr.max.y;
 		yoffcr = f->colr.max.y;
 	}
 }
@@ -480,13 +480,13 @@ foo(Frame *f) {
 	maxh = 0;
 	if(h.aspect.max.x)
 		maxh = h.baspect.y +
-		       (Dx(f->r) - h.baspect.x) *
+		       (Dx(f->cr) - h.baspect.x) *
 		       h.aspect.max.y / h.aspect.max.x;
 	maxh = max(maxh, h.max.y);
 
-	if(Dy(f->r) >= maxh)
+	if(Dy(f->cr) >= maxh)
 		return 0;
-	return h.inc.y - (Dy(f->r) - h.base.y) % h.inc.y;
+	return h.inc.y - (Dy(f->cr) - h.base.y) % h.inc.y;
 }
 
 static int
@@ -513,7 +513,7 @@ column_squeeze(Area *a) {
 	fvec.n = 0;
 	for(f=a->frame; f; f=f->anext)
 		if(!f->collapsed) {
-			f->r = frame_hints(f, f->r, 0);
+			f->cr = frame_hints(f, f->cr, 0);
 			vector_ppush(&fvec, f);
 		}
 
@@ -527,7 +527,7 @@ column_squeeze(Area *a) {
 			if(dy > surplus)
 				break;
 			surplus -= dy;
-			f->r.max.y += dy;
+			f->cr.max.y += dy;
 		}
 	}
 }
@@ -537,11 +537,11 @@ column_frob(Area *a) {
 	Frame *f;
 
 	for(f=a->frame; f; f=f->anext)
-		f->r = f->colr;
+		f->cr = f->colr;
 	column_settle(a);
-	if(a->view == selview)
-	for(f=a->frame; f; f=f->anext)
-		client_resize(f->client, f->r);
+	if(view_isselected(a->view))
+		for(f=a->frame; f; f=f->anext)
+			client_resize(f->client, f->cr);
 }
 
 static void
@@ -562,7 +562,7 @@ column_scale(Area *a) {
 		colh = 0;
 
 	dy = 0;
-	surplus = Dy(a->r);
+	surplus = Dy(a->cr);
 	for(f=a->frame; f; f=f->anext) {
 		if(f->collapsed)
 			f->colr.max.y = f->colr.min.y + colh;
@@ -574,11 +574,11 @@ column_scale(Area *a) {
 	}
 	for(f=a->frame; f; f=f->anext) {
 		f->dy = Dy(f->colr);
-		f->colr.min.x = a->r.min.x;
-		f->colr.max.x = a->r.max.x;
+		f->colr.min.x = a->cr.min.x;
+		f->colr.max.x = a->cr.max.x;
 		if(!f->collapsed)
 			f->colr.max.y += ((float)f->dy / dy) * surplus;
-		if(btassert("6 full", !(f->collapsed ? Dy(f->r) >= 0 : dy > 0)))
+		if(btassert("6 full", !(f->collapsed ? Dy(f->cr) >= 0 : dy > 0)))
 			warning("Something's fucked: %s:%d:%s()",
 				__FILE__, __LINE__, __func__);
 		frame_resize(f, f->colr);
@@ -613,8 +613,8 @@ column_arrange(Area *a, bool dirty) {
 			f->collapsed = (f != a->sel);
 		break;
 	default:
-		fprint(2, "Dieing: %s: screen: %d a: %p mode: %x floating: %d\n",
-		       v->name, a->screen, a, a->mode, a->floating);
+		fprint(2, "Dieing: %s: a: %p mode: %x floating: %d\n",
+		       v->name, a, a->mode, a->floating);
 		die("not reached");
 		break;
 	}
@@ -622,11 +622,15 @@ column_arrange(Area *a, bool dirty) {
 	/* XXX */
 	if(a->sel->collapsed)
 		area_setsel(a, a->sel);
-	if(v == selview) {
+	if(view_isselected(v)) {
+#if 0
 		//view_restack(v);
-		client_resize(a->sel->client, a->sel->r);
+#else
+		view_restack(v);
+#endif
+		client_resize(a->sel->client, a->sel->cr);
 		for(f=a->frame; f; f=f->anext)
-			client_resize(f->client, f->r);
+			client_resize(f->client, f->cr);
 	}
 }
 
@@ -638,9 +642,9 @@ column_resize(Area *a, int w) {
 	an = a->next;
 	assert(an != nil);
 
-	dw = w - Dx(a->r);
-	a->r.max.x += dw;
-	an->r.min.x += dw;
+	dw = w - Dx(a->cr);
+	a->cr.max.x += dw;
+	an->cr.min.x += dw;
 
 	/* view_arrange(a->view); */
 	view_update(a->view);
@@ -661,12 +665,12 @@ column_resizeframe_h(Frame *f, Rectangle r) {
 	if(fp)
 		r.min.y = max(r.min.y, fp->colr.min.y + minh);
 	else /* XXX. */
-		r.min.y = max(r.min.y, a->r.min.y);
+		r.min.y = max(r.min.y, a->cr.min.y);
 
 	if(fn)
 		r.max.y = min(r.max.y, fn->colr.max.y - minh);
 	else
-		r.max.y = min(r.max.y, a->r.max.y);
+		r.max.y = min(r.max.y, a->cr.max.y);
 
 	if(fp) {
 		fp->colr.max.y = r.min.y;
@@ -690,33 +694,33 @@ column_resizeframe(Frame *f, Rectangle r) {
 	a = f->area;
 	v = a->view;
 
-	minw = Dx(v->r[a->screen]) / NCOL;
+	minw = Dx(view_rect(v)) / NCOL;
 
 	al = a->prev;
 	ar = a->next;
 
 	if(al)
-		r.min.x = max(r.min.x, al->r.min.x + minw);
+		r.min.x = max(r.min.x, al->cr.min.x + minw);
 	else { /* Hm... */
-		r.min.x = max(r.min.x, v->r[a->screen].min.x);
+		r.min.x = max(r.min.x, view_rect(v).min.x);
 		r.max.x = max(r.max.x, r.min.x + minw);
 	}
 
 	if(ar)
-		r.max.x = min(r.max.x, ar->r.max.x - minw);
+		r.max.x = min(r.max.x, ar->cr.max.x - minw);
 	else {
-		r.max.x = min(r.max.x, v->r[a->screen].max.x);
+		r.max.x = min(r.max.x, view_rect(v).max.x);
 		r.min.x = min(r.min.x, r.max.x - minw);
 	}
 
-	a->r.min.x = r.min.x;
-	a->r.max.x = r.max.x;
+	a->cr.min.x = r.min.x;
+	a->cr.max.x = r.max.x;
 	if(al) {
-		al->r.max.x = a->r.min.x;
+		al->cr.max.x = a->cr.min.x;
 		column_arrange(al, false);
 	}
 	if(ar) {
-		ar->r.min.x = a->r.max.x;
+		ar->cr.min.x = a->cr.max.x;
 		column_arrange(ar, false);
 	}
 

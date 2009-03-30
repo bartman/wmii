@@ -322,7 +322,7 @@ strclient(View *v, char *s) {
 }
 
 Area*
-strarea(View *v, int scrn, const char *s) {
+strarea(View *v, const char *s) {
 	Area *a;
 	long i;
 
@@ -343,12 +343,12 @@ strarea(View *v, int scrn, const char *s) {
 
 	/* FIXME: Very broken! */
 	if(i > 0) {
-		for(a = v->areas[scrn]; a; a = a->next)
+		for(a = v->areas; a; a = a->next)
 			if(i-- == 1) break;
 	}
 	else {
 		/* FIXME: Switch to circularly linked list. */
-		for(a = v->areas[scrn]; a->next; a = a->next)
+		for(a = v->areas; a->next; a = a->next)
 			;
 		for(; a; a = a->prev)
 			if(++i == 0) break;
@@ -357,7 +357,7 @@ strarea(View *v, int scrn, const char *s) {
 }
 
 static Frame*
-getframe(View *v, int scrn, IxpMsg *m) {
+getframe(View *v, IxpMsg *m) {
 	Client *c;
 	Frame *f;
 	Area *a;
@@ -373,7 +373,7 @@ getframe(View *v, int scrn, IxpMsg *m) {
 	}
 
 	/* XXX: Multihead */
-	a = strarea(v, scrn, s);
+	a = strarea(v, s);
 	if(a == nil) {
 		fprint(2, "a == nil\n");
 		return nil;
@@ -455,15 +455,15 @@ message_root(void *p, IxpMsg *m) {
 		s = msg_getword(m);
 		if(!strcmp(s, "on"))
 			s = msg_getword(m);
-		if(!setdef(&screen->barpos, s, barpostab, nelem(barpostab)))
+		if(!setdef(&selscreen->barpos, s, barpostab, nelem(barpostab)))
 			return Ebadvalue;
-		view_update(selview);
+		view_update(selview());
 		break;
 	case LBORDER:
 		if(!getulong(msg_getword(m), &n))
 			return Ebadvalue;
 		def.border = n;
-		view_update(selview);
+		view_update(selview());
 		break;
 	case LCOLMODE:
 		s = msg_getword(m);
@@ -479,7 +479,7 @@ message_root(void *p, IxpMsg *m) {
 		break;
 	case LFOCUSCOLORS:
 		ret = msg_parsecolors(m, &def.focuscolor);
-		view_update(selview);
+		view_update(selview());
 		break;
 	case LFONT:
 		fn = loadfont(m->pos);
@@ -490,7 +490,7 @@ message_root(void *p, IxpMsg *m) {
 				bar_resize(screens[n]);
 		}else
 			ret = "can't load font";
-		view_update(selview);
+		view_update(selview());
 		break;
 	case LGRABMOD:
 		s = msg_getword(m);
@@ -505,11 +505,11 @@ message_root(void *p, IxpMsg *m) {
 	case LINCMODE:
 		if(!setdef(&def.incmode, msg_getword(m), incmodetab, nelem(incmodetab)))
 			return Ebadvalue;
-		view_update(selview);
+		view_update(selview());
 		break;
 	case LNORMCOLORS:
 		ret = msg_parsecolors(m, &def.normcolor);
-		view_update(selview);
+		view_update(selview());
 		break;
 	case LSELCOLORS:
 		warning("selcolors have been removed");
@@ -539,8 +539,9 @@ printdebug(int mask) {
 
 char*
 readctl_root(void) {
+	View *v;
 	bufclear();
-	bufprint("bar on %s\n", barpostab[screen->barpos]);
+	bufprint("bar on %s\n", barpostab[selscreen->barpos]);
 	bufprint("border %d\n", def.border);
 	bufprint("colmode %s\n", modes[def.colmode]);
 	if(debugflag) {
@@ -556,9 +557,12 @@ readctl_root(void) {
 	bufprint("focuscolors %s\n", def.focuscolor.colstr);
 	bufprint("font %s\n", def.font->name);
 	bufprint("grabmod %s\n", def.grabmod);
-	bufprint("incmode %s\n", incmodetab[screen->barpos]);
+	bufprint("incmode %s\n", incmodetab[selscreen->barpos]);
 	bufprint("normcolors %s\n", def.normcolor.colstr);
-	bufprint("view %s\n", selview->name);
+	v = selview();
+	/* TODO: do better than 1.. it's possible to have no views */
+	bufprint("view %s\n", v ? v->name : "1");
+	bufprint("screen %s\n", selscreen->name);
 	return buffer;
 }
 
@@ -616,7 +620,7 @@ message_view(View *v, IxpMsg *m) {
 	case LCOLMODE:
 		s = msg_getword(m);
 		/* XXX: Multihead */
-		a = strarea(v, screen->idx, s);
+		a = strarea(v, s);
 		if(a == nil) /* || a->floating) */
 			return Ebadvalue;
 
@@ -645,6 +649,43 @@ message_view(View *v, IxpMsg *m) {
 	/* not reached */
 }
 
+char*	message_screen(WMScreen *scrn, IxpMsg *m)
+{
+	Font *fn;
+	char *s, *ret = nil;
+
+	s = msg_getword(m);
+	if(s == nil)
+		return nil;
+
+	switch(getsym(s)) {
+	case LFOCUSCOLORS:
+		ret = msg_parsecolors(m, &scrn->focuscolor);
+		view_update(selview());
+		break;
+	case LFONT:
+		fn = loadfont(m->pos);
+		if(fn) {
+			freefont(scrn->font);
+			scrn->font = fn;
+			bar_resize(scrn);
+		}else
+			ret = "can't load font";
+		view_update(selview());
+		break;
+	case LNORMCOLORS:
+		ret = msg_parsecolors(m, &scrn->normcolor);
+		view_update(selview());
+		break;
+	case LVIEW:
+		view_select(m->pos);
+		break;
+	default:
+		return Ebadcmd;
+	}
+	return ret;
+}
+
 char*
 readctl_view(View *v) {
 	Area *a;
@@ -663,8 +704,26 @@ readctl_view(View *v) {
 	if(v->sel->sel)
 		bufprint("select client %C\n", v->sel->sel->client);
 
-	for(a = v->firstarea, i = 1; a; a = a->next, i++)
+	for(a = v->areas, i = 1; a; a = a->next, i++)
 		bufprint("colmode %d %s\n", i, column_getmode(a));
+	return buffer;
+}
+
+char*
+readctl_screen(WMScreen *s)
+{
+	bufclear();
+	bufprint("%s\n", s->name);
+
+	bufprint("barpos %d\n", s->barpos);
+	bufprint("focuscolors %s\n", screen_color(s, focuscolor)->colstr);
+	bufprint("font %s\n", s->font ? s->font->name : def.font->name);
+	bufprint("normcolors %s\n", screen_color(s, normcolor)->colstr);
+	bufprint("rect %d %d  %d %d\n", s->r.min.x, s->r.min.y,
+			s->r.max.x, s->r.max.y);
+	bufprint("view %s\n", s->selview ? s->selview->name : "");
+	bufprint("showing %d\n", s->showing);
+
 	return buffer;
 }
 
@@ -724,7 +783,7 @@ msg_grow(View *v, IxpMsg *m) {
 	Point amount;
 	int dir;
 
-	f = getframe(v, screen->idx, m);
+	f = getframe(v, m);
 	if(f == nil)
 		return "bad frame";
 	c = f->client;
@@ -744,7 +803,7 @@ msg_grow(View *v, IxpMsg *m) {
 		return Ebadvalue;
 
 	if(f->area->floating)
-		r = f->r;
+		r = f->cr;
 	else
 		r = f->colr;
 	switch(dir) {
@@ -770,7 +829,7 @@ msg_nudge(View *v, IxpMsg *m) {
 	Point amount;
 	int dir;
 
-	f = getframe(v, screen->idx, m);
+	f = getframe(v, m);
 	if(f == nil)
 		return "bad frame";
 
@@ -784,7 +843,7 @@ msg_nudge(View *v, IxpMsg *m) {
 		return Ebadvalue;
 
 	if(f->area->floating)
-		r = f->r;
+		r = f->cr;
 	else
 		r = f->colr;
 	switch(dir) {
@@ -858,7 +917,7 @@ msg_selectarea(Area *a, IxpMsg *m) {
 		else if(v->revert && v->revert != a)
 			ap = v->revert;
 		else
-			ap = v->firstarea;
+			ap = v->areas;
 		break;
 	case LLEFT:
 	case LRIGHT:
@@ -871,7 +930,7 @@ msg_selectarea(Area *a, IxpMsg *m) {
 		break;
 	default:
 		/* XXX: Multihead */
-		ap = strarea(v, a->screen, s);
+		ap = strarea(v, s);
 		if(!ap || ap->floating)
 			return Ebadvalue;
 		if((s = msg_getword(m))) {
@@ -888,6 +947,27 @@ msg_selectarea(Area *a, IxpMsg *m) {
 
 	area_focus(ap);
 	return nil;
+}
+
+static bool wrapping_screens(Area *a, int sym)
+{
+	WMScreen *scrn = selscreen;
+	int area_select;
+
+	if (sym == LLEFT && a == a->view->areas) {
+		int si = (scrn->idx + nscreens - 1) % nscreens;
+		scrn = screens[si];
+		area_select = LastArea;
+
+	} else if (sym == LRIGHT && !a->next) {
+		int si = (scrn->idx + 1) % nscreens;
+		scrn = screens[si];
+		area_select = FirstArea;
+	} else
+		return false;
+
+	screen_change(scrn, area_select);
+	return true;
 }
 
 static char*
@@ -921,8 +1001,18 @@ msg_selectframe(Area *a, IxpMsg *m, int sym) {
 		f = client_viewframe(c, f->view);
 		if(!f)
 			return Ebadvalue;
-	}
-	else {
+
+	} else if (wrapping_screens(a, sym)) {
+		View *v;
+
+		v = selview();
+		if (!v)
+			return nil;
+
+		a = v->sel;
+		f = a ? a->sel : NULL;
+
+	} else {
 		if(!find(&a, &f, DIR(sym), true, stack))
 			return Ebadvalue;
 	}
@@ -943,7 +1033,7 @@ msg_selectframe(Area *a, IxpMsg *m, int sym) {
 
 	frame_focus(f);
 	frame_restack(f, nil);
-	if(f->view == selview)
+	if(view_isvisible(f->view))
 		view_restack(a->view);
 	return nil;
 }
@@ -1008,6 +1098,7 @@ msg_sendclient(View *v, IxpMsg *m, bool swap) {
 		break;
 	}
 
+#if 1
 	if(!to && !swap) {
 		/* XXX: Multihead - clean this up, move elsewhere. */
 		if(!f->anext && f == f->area->frame) {
@@ -1018,9 +1109,13 @@ msg_sendclient(View *v, IxpMsg *m, bool swap) {
 		}
 		else {
 			to = (sym == LLEFT) ? nil : a;
-			to = column_new(v, to, a->screen, 0);
+			to = column_new(v, to, 0);
 		}
 	}
+#else
+	if(!to && !swap && (f->anext || f != f->area->frame))
+		to = column_new(v, a, 0);
+#endif
 
 	if(!to)
 		return Ebadvalue;
@@ -1034,7 +1129,7 @@ msg_sendclient(View *v, IxpMsg *m, bool swap) {
 
 	frame_focus(client_viewframe(c, v));
 	/* view_arrange(v); */
-	view_update_all();
+	view_update_all(selscreen);
 	return nil;
 }
 
@@ -1074,7 +1169,7 @@ msg_sendframe(Frame *f, int sym, bool swap) {
 	/* view_arrange(f->view); */
 
 	frame_focus(client_viewframe(c, f->view));
-	view_update_all();
+	view_update_all(selscreen);
 	return nil;
 }
 

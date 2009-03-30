@@ -22,10 +22,10 @@ area_idx(Area *a) {
 	v = a->view;
 	if(a->floating)
 		return -1;
-	i = 1;
-	for(ap=v->areas[a->screen]; a != ap; ap=ap->next)
-		i++;
-	return i;
+	for(ap=v->areas, i=1; ap; i++, ap=ap->next)
+		if (a == ap)
+			return i;
+	return -1;
 }
 
 static Rectangle
@@ -33,17 +33,16 @@ area_rect(void *v) {
 	Area *a;
 
 	a = v;
-	return a->r;
+	return a->cr;
 }
 
 Area*
 area_find(View *v, Rectangle r, int dir, bool wrap) {
 	static Vector_ptr vec;
 	Area *a;
-	int s;
 
 	vec.n = 0;
-	foreach_column(v, s, a)
+	foreach_column(v, a)
 		vector_ppush(&vec, a);
 
 	return findthing(r, dir, &vec, area_rect, wrap);
@@ -72,20 +71,25 @@ area_name(Area *a) {
 }
 
 Area*
-area_create(View *v, Area *pos, int scrn, uint width) {
+area_create(View *v, Area *pos, uint width) {
 	static ushort id = 1;
 	uint i;
 	uint minwidth;
 	int numcols;
 	Area *a;
+	WMScreen *s = v->screen;
 
-	assert(!pos || pos->screen == scrn);
+	/* TODO: we should be using floats here, since we don't know where the
+	 * area will end up later... if the view is not visible now */
+	if (!s)
+		s = selscreen;
+
 	SET(i);
 	if(v->areas) { /* Creating a column. */
-		minwidth = Dx(v->r[scrn])/NCOL;
+		minwidth = Dx(s->r)/NCOL;
 		i = pos ? area_idx(pos) : 1;
 		numcols = 0;
-		for(a=v->areas[scrn]; a; a=a->next)
+		for(a=v->areas; a; a=a->next)
 			numcols++;
 
 		/* TODO: Need a better sizing/placing algorithm.
@@ -94,23 +98,22 @@ area_create(View *v, Area *pos, int scrn, uint width) {
 			if(numcols >= 0) {
 				width = view_newcolwidth(v, i);
 				if (width == 0)
-					width = Dx(v->r[scrn]) / (numcols + 1);
+					width = Dx(s->r) / (numcols + 1);
 			}
 			else
-				width = Dx(v->r[scrn]);
+				width = Dx(s->r);
 		}
 
 		if(width < minwidth)
 			width = minwidth;
-		if(numcols && (numcols * minwidth + width) > Dx(v->r[scrn]))
+		if(numcols && (numcols * minwidth + width) > Dx(s->r))
 			return nil;
 
-		view_scale(v, scrn, Dx(v->r[scrn]) - width);
+		view_scale(v, Dx(s->r) - width);
 	}
 
 	a = emallocz(sizeof *a);
 	a->view = v;
-	a->screen = scrn;
 	a->id = id++;
 	a->floating = !v->floating;
 	if(a->floating)
@@ -120,21 +123,20 @@ area_create(View *v, Area *pos, int scrn, uint width) {
 	a->frame = nil;
 	a->sel = nil;
 
-	a->r = v->r[scrn];
-	a->r.min.x = 0;
-	a->r.max.x = width;
+	a->cr = s->r;
+	a->cr.max.x = a->cr.min.x + width;
+	a->sr = FRect(0, 0, (float)Dx(s->r) / width, 1);
 
 	if(a->floating) {
 		v->floating = a;
-		a->screen = -1;
 	}
 	else if(pos) {
 		a->next = pos->next;
 		a->prev = pos;
 	}
 	else {
-		a->next = v->areas[scrn];
-		v->areas[scrn] = a;
+		a->next = v->areas;
+		v->areas = a;
 	}
 	if(a->prev)
 		a->prev->next = a;
@@ -175,11 +177,11 @@ area_destroy(Area *a) {
 	/* Can only destroy the floating area when destroying a
 	 * view---after destroying all columns.
 	 */
-	assert(!a->floating || !v->areas[0]);
+	assert(!a->floating || !v->areas);
 	if(a->prev)
 		a->prev->next = a->next;
 	else if(!a->floating)
-		v->areas[a->screen] = a->next;
+		v->areas = a->next;
 	else
 		v->floating = nil;
 	if(a->next)
@@ -256,6 +258,9 @@ area_detach(Frame *f) {
 	Area *a;
 
 	a = f->area;
+	if (!a)
+		return;
+
 	v = a->view;
 
 	if(a->floating)
@@ -279,7 +284,7 @@ area_focus(Area *a) {
 	f = a->sel;
 	old_a = v->sel;
 
-	if(!a->floating && view_fullscreen_p(v, a->screen))
+	if(!a->floating && view_fullscreen_p(v))
 		return;
 
 	v->sel = a;
@@ -295,10 +300,11 @@ area_focus(Area *a) {
 			view_update(v);
 	}
 
-	if(v != selview)
+	if(v != selview())
 		return;
 
-	move_focus(old_a->sel, f);
+	if (old_a)
+		move_focus(old_a->sel, f);
 
 	if(f)
 		client_focus(f->client);
@@ -306,7 +312,7 @@ area_focus(Area *a) {
 		client_focus(nil);
 
 	if(a != old_a) {
-		event("AreaFocus %a\n", a);
+		event("AreaFocus %a %s\n", a, v->screen->name);
 		/* Deprecated */
 		if(a->floating)
 			event("FocusFloating\n");

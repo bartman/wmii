@@ -11,9 +11,8 @@ empty_p(View *v) {
 	Area *a;
 	char **p;
 	int cmp;
-	int s;
 
-	foreach_frame(v, s, a, f) {
+	foreach_frame(v, a, f) {
 		cmp = 1;
 		for(p=f->client->retags; *p; p++) {
 			cmp = strcmp(*p, v->name);
@@ -27,30 +26,33 @@ empty_p(View *v) {
 }
 
 static void
-_view_select(View *v) {
-	if(selview != v) {
-		if(selview)
-			event("UnfocusTag %s\n",selview->name);
-		selview = v;
-		event("FocusTag %s\n", v->name);
-		event("AreaFocus %a\n", v->sel);
+_view_select(WMScreen *s, View *v) {
+	if(s->selview != v) {
+		if(s->selview) {
+			event("UnfocusTag %s %s\n",s->selview->name, s->name);
+			s->selview->screen = NULL;
+		}
+		s->selview = v;
+		v->screen = s;
+		event("FocusTag %s %s\n", v->name, s->name);
+		event("AreaFocus %a %s\n", v->sel, s->name);
 		ewmh_updateview();
 	}
 }
 
 Client*
 view_selclient(View *v) {
-	if(v->sel && v->sel->sel)
+	if(v && v->sel && v->sel->sel)
 		return v->sel->sel->client;
 	return nil;
 }
 
 bool
-view_fullscreen_p(View *v, int scrn) {
+view_fullscreen_p(View *v) {
 	Frame *f;
 
 	for(f=v->floating->frame; f; f=f->anext)
-		if(f->client->fullscreen == scrn)
+		if(f->client->fullscreen >= 0)
 			return true;
 	return false;
 }
@@ -73,18 +75,16 @@ view_create(const char *name) {
 
 	v = emallocz(sizeof *v);
 	v->id = id++;
-	v->r = emallocz(nscreens * sizeof *v->r);
 	v->areas = emallocz(nscreens * sizeof *v->areas);
 
 	utflcpy(v->name, name, sizeof v->name);
 
 	event("CreateTag %s\n", v->name);
-	area_create(v, nil, screen->idx, 0);
+	area_create(v, nil, 0);
 
-	for(i=0; i < nscreens; i++)
-		view_init(v, i);
+	view_init(v);
 	
-	area_focus(v->firstarea);
+	area_focus(v->areas);
 
 	v->next = *vp;
 	*vp = v;
@@ -96,16 +96,16 @@ view_create(const char *name) {
 			apply_tags(c, c->tags);
 
 	view_arrange(v);
-	if(!selview)
-		_view_select(v);
+	if(!selview())
+		_view_select(selscreen, v);
 	ewmh_updateviews();
 	return v;
 }
 
 void
-view_init(View *v, int iscreen) {
-	v->areas[iscreen] = nil;
-	column_new(v, nil, iscreen, 0);
+view_init(View *v) {
+	v->areas = nil;
+	column_new(v, nil, 0);
 }
 
 void
@@ -114,7 +114,10 @@ view_destroy(View *v) {
 	Frame *f;
 	View *tv;
 	Area *a;
-	int s;
+	WMScreen *scrn;
+
+	if (!empty_p(v))
+		return;
 
 	if(v->dead)
 		return;
@@ -127,24 +130,24 @@ view_destroy(View *v) {
 
 	/* Detach frames held here by regex tags. */
 	/* FIXME: Can do better. */
-	foreach_frame(v, s, a, f)
+	foreach_frame(v, a, f)
 		apply_tags(f->client, f->client->tags);
 
-	foreach_area(v, s, a)
+	foreach_area(v, a)
 		area_destroy(a);
 
 	event("DestroyTag %s\n", v->name);
 
-	if(v == selview) {
+	scrn = view_which_screen(v);
+	if(scrn) {
 		for(tv=view; tv; tv=tv->next)
 			if(tv->next == *vp) break;
 		if(tv == nil)
 			tv = view;
 		if(tv)
-			view_focus(screen, tv);
+			view_focus(scrn, tv);
 	}
 	free(v->areas);
-	free(v->r);
 	free(v);
 	ewmh_updateviews();
 }
@@ -153,9 +156,9 @@ Area*
 view_findarea(View *v, int idx, bool create) {
 	Area *a;
 
-	for(a=v->firstarea; a && --idx > 0; a=a->next)
+	for(a=v->areas; a && --idx > 0; a=a->next)
 		if(create && a->next == nil)
-			return area_create(v, a, screen->idx, 0);
+			return area_create(v, a, 0);
 	return a;
 }
 
@@ -163,9 +166,11 @@ static void
 frames_update_sel(View *v) {
 	Frame *f;
 	Area *a;
-	int s;
 
-	foreach_frame(v, s, a, f)
+	if (!v)
+		return;
+
+	foreach_frame(v, a, f)
 		f->client->sel = f;
 }
 
@@ -223,7 +228,11 @@ view_update_rect(View *v) {
 	scrnr = max_rect(vp);
 
 	/* FIXME: Multihead. */
-	v->floating->r = scr.rect;
+	scrn = view_which_screen(v);
+	if (scrn)
+		v->floating->cr = scrn->r;
+	else
+		v->floating->cr = scr.rect;
 
 	for(s=0; s < nscreens; s++) {
 		scrn = screens[s];
@@ -255,7 +264,7 @@ view_update_rect(View *v) {
 			r.max.y = min(r.max.y, scrn->brect.min.y);
 		}
 		bar_setbounds(scrn, rr.min.x, rr.max.x);
-		v->r[s] = r;
+		scrn->vrect = r;
 	}
 }
 
@@ -264,16 +273,13 @@ view_update(View *v) {
 	Client *c;
 	Frame *f;
 	Area *a;
-	int s;
 
-	if(v != selview)
-		return;
-	if(starting)
+	if(starting || !view_isvisible(v))
 		return;
 
 	frames_update_sel(v);
 
-	foreach_frame(v, s, a, f)
+	foreach_frame(v, a, f)
 		if(f->client->fullscreen >= 0) {
 			f->collapsed = false;
 			if(!f->area->floating) {
@@ -291,17 +297,19 @@ view_update(View *v) {
 		if((f && f->view == v)
 		&& (f->area == v->sel || !(f->area && f->area->max && f->area->floating))) {
 			if(f->area)
-				client_resize(c, f->r);
+				client_resize(c, f->cr);
 		}else {
-			unmap_frame(c);
-			client_unmap(c, IconicState);
+			if (!(f && view_isvisible(f->view))) {
+				unmap_frame(c);
+				client_unmap(c, IconicState);
+			}
 		}
 		ewmh_updatestate(c);
 		ewmh_updateclient(c);
 	}
 
 	view_restack(v);
-	if(!v->sel->floating && view_fullscreen_p(v, v->sel->screen))
+	if(!v->sel->floating && view_fullscreen_p(v))
 		area_focus(v->floating);
 	else
 		area_focus(v->sel);
@@ -313,24 +321,51 @@ view_focus(WMScreen *s, View *v) {
 	
 	USED(s);
 
-	_view_select(v);
+	if (!s || !v)
+		return;
+
+	selscreen = s;
+	_view_select(s, v);
 	view_update(v);
 }
 
 void
 view_select(const char *arg) {
 	char buf[256];
+	char *tag = NULL;
+	char *scrn = NULL;
+	WMScreen *s;
 
 	utflcpy(buf, arg, sizeof buf);
-	trim(buf, " \t+/");
 
-	if(buf[0] == '\0')
+	tag = strtok(buf, " \t");
+	trim(tag, " \t+/");
+
+	scrn = strtok(NULL, " \t");
+	if (scrn)
+		trim(scrn, " \t+/");
+
+	if(tag[0] == '\0')
 		return;
-	if(!strcmp(buf, ".") || !strcmp(buf, ".."))
+	if(!strcmp(tag, ".") || !strcmp(tag, ".."))
 		return;
 
-	_view_select(view_create(buf));
-	view_update_all(); /* performs view_focus */
+	s = findscreen_by_name(scrn);
+
+	view_select_on(s, buf);
+}
+
+void
+view_select_on(WMScreen *s, const char *name)
+{
+	View *v;
+
+	v = view_create(name);
+	if (view_isvisible(v))
+		return;
+
+	_view_select(s, v);
+	view_update_all(s); /* performs view_focus */
 }
 
 void
@@ -359,9 +394,9 @@ view_attach(View *v, Frame *f) {
 		 */
 		else if(starting
 		     || c->sel && c->sel->area && !c->sel->area->floating)
-			a = v->firstarea;
+			a = v->areas;
 	}
-	if(!a->floating && view_fullscreen_p(v, a->screen))
+	if(!a->floating && view_fullscreen_p(v))
 		a = v->floating;
 
 	area_attach(a, f);
@@ -403,7 +438,7 @@ view_detach(Frame *f) {
 	if(c->sel == f)
 		c->sel = f->cnext;
 
-	if(v == selview)
+	if(view_isvisible(v))
 		view_update(v);
 	else if(empty_p(v))
 		view_destroy(v);
@@ -427,9 +462,8 @@ view_restack(View *v) {
 	Divide *d;
 	Frame *f;
 	Area *a;
-	int s;
 	
-	if(v != selview)
+	if(view_isvisible(v))
 		return;
 
 	wins.n = 0;
@@ -450,7 +484,7 @@ view_restack(View *v) {
 	for(d = divs; d && d->w->mapped; d = d->next)
 		vector_lpush(&wins, d->w->w);
 
-	foreach_column(v, s, a)
+	foreach_column(v, a)
 		if(a->frame) {
 			vector_lpush(&wins, a->sel->client->framewin->w);
 			for(f=a->frame; f; f=f->anext)
@@ -464,47 +498,47 @@ view_restack(View *v) {
 }
 
 void
-view_scale(View *v, int scrn, int width) {
+view_scale(View *v, int width) {
 	uint xoff, numcol;
 	uint minwidth;
 	Area *a;
 	float scale;
 	int dx;
 
-	minwidth = Dx(v->r[scrn])/NCOL; /* XXX: Multihead. */
+	minwidth = Dx(view_rect(v))/NCOL; /* XXX: Multihead. */
 
-	if(!v->areas[scrn])
+	if(!v->areas)
 		return;
 
 	numcol = 0;
 	dx = 0;
-	for(a=v->areas[scrn]; a; a=a->next) {
+	for(a=v->areas; a; a=a->next) {
 		numcol++;
-		dx += Dx(a->r);
+		dx += Dx(a->cr);
 	}
 
 	scale = (float)width / dx;
-	xoff = v->r[scrn].min.x;
-	for(a=v->areas[scrn]; a; a=a->next) {
-		a->r.max.x = xoff + Dx(a->r) * scale;
-		a->r.min.x = xoff;
+	xoff = view_rect(v).min.x;
+	for(a=v->areas; a; a=a->next) {
+		a->cr.max.x = xoff + Dx(a->cr) * scale;
+		a->cr.min.x = xoff;
 		if(!a->next)
-			a->r.max.x = v->r[scrn].min.x + width;
-		xoff = a->r.max.x;
+			a->cr.max.x = view_rect(v).min.x + width;
+		xoff = a->cr.max.x;
 	}
 
 	if(numcol * minwidth > width)
 		return;
 
-	xoff = v->r[scrn].min.x;
-	for(a=v->areas[scrn]; a; a=a->next) {
-		a->r.min.x = xoff;
+	xoff = view_rect(v).min.x;
+	for(a=v->areas; a; a=a->next) {
+		a->cr.min.x = xoff;
 
-		if(Dx(a->r) < minwidth)
-			a->r.max.x = xoff + minwidth;
+		if(Dx(a->cr) < minwidth)
+			a->cr.max.x = xoff + minwidth;
 		if(!a->next)
-			a->r.max.x = v->r[scrn].min.x + width;
-		xoff = a->r.max.x;
+			a->cr.max.x = view_rect(v).min.x + width;
+		xoff = a->cr.max.x;
 	}
 }
 
@@ -512,23 +546,21 @@ view_scale(View *v, int scrn, int width) {
 void
 view_arrange(View *v) {
 	Area *a;
-	int s;
 
-	if(!v->firstarea)
+	if(!v || !v->areas)
 		return;
 
 	view_update_rect(v);
-	for(s=0; s < nscreens; s++)
-		view_scale(v, s, Dx(v->r[s]));
-	foreach_area(v, s, a) {
+	view_scale(v, Dx(view_rect(v)));
+	foreach_area(v, a) {
 		if(a->floating)
 			continue;
 		/* This is wrong... */
-		a->r.min.y = v->r[s].min.y;
-		a->r.max.y = v->r[s].max.y;
+		a->cr.min.y = view_rect(v).min.y;
+		a->cr.max.y = view_rect(v).max.y;
 		column_arrange(a, false);
 	}
-	if(v == selview)
+	if(view_isvisible(v))
 		div_update_all();
 }
 
@@ -542,9 +574,9 @@ view_rects(View *v, uint *num, Frame *ignore) {
 
 	for(f=v->floating->frame; f; f=f->anext)
 		if(f != ignore)
-			vector_rpush(&result, f->r);
+			vector_rpush(&result, f->cr);
 	for(i=0; i < nscreens; i++) {
-		vector_rpush(&result, v->r[i]);
+		vector_rpush(&result, view_rect(v));
 		vector_rpush(&result, screens[i]->r);
 	}
 
@@ -553,20 +585,22 @@ view_rects(View *v, uint *num, Frame *ignore) {
 }
 
 void
-view_update_all(void) {
+view_update_all(WMScreen *s) {
 	View *n, *v, *old;
 
-	old = selview;
+	old = screen_selview(s);
 	for(v=view; v; v=v->next)
 		frames_update_sel(v);
 
 	for(v=view; v; v=n) {
 		n=v->next;
+		if(view_isvisible(v) && v->screen != selscreen)
+			continue;
 		if(v != old && empty_p(v))
 			view_destroy(v);
 	}
 
-	view_update(selview);
+	view_update(s->selview);
 }
 
 uint
@@ -582,7 +616,7 @@ view_newcolwidth(View *v, int num) {
 			n = tokenize(toks, 16, buf, '+');
 			if(num < n)
 				if(getulong(toks[num], &n))
-					return Dx(v->screenr) * (n / 100.0); /* XXX: Multihead. */
+					return Dx(view_rect(v)) * (n / 100.0); /* XXX: Multihead. */
 			break;
 		}
 	return 0;
@@ -593,19 +627,19 @@ view_index(View *v) {
 	Rectangle *r;
 	Frame *f;
 	Area *a;
-	int i, s;
+	int i;
 
 	bufclear();
 	i = 0;
-	foreach_area(v, s, a) {
+	foreach_area(v, a) {
 		i++;
 		if(a->floating)
-			bufprint("# ~ %d %d\n", Dx(a->r), Dy(a->r));
+			bufprint("# ~ %d %d\n", Dx(a->cr), Dy(a->cr));
 		else
-			bufprint("# %d %d %d\n", i, a->r.min.x, Dx(a->r));
+			bufprint("# %d %d %d\n", i, a->cr.min.x, Dx(a->cr));
 
 		for(f=a->frame; f; f=f->anext) {
-			r = &f->r;
+			r = &f->cr;
 			if(a->floating)
 				bufprint("~ %C %d %d %d %d %s\n",
 						f->client,
@@ -620,5 +654,51 @@ view_index(View *v) {
 		}
 	}
 	return buffer;
+}
+
+WMScreen*
+view_which_screen(View *v)
+{
+	int s;
+	WMScreen *scrn;
+
+	if (!v)
+		return NULL;
+
+	if (v->screen)
+		return v->screen;
+
+#if 0
+	for(s=0; s < nscreens; s++) {
+		scrn = screens[s];
+
+		if(v == screen_selview(scrn))
+			return scrn;
+	}
+#endif
+
+	return NULL;
+}
+
+bool
+view_isvisible(View *v)
+{
+	return (bool)view_which_screen(v);
+}
+
+bool
+view_isselected(View *v)
+{
+	return v == screen_selview(selscreen);
+}
+
+Rectangle
+view_rect(View *v)
+{
+	if (v->screen)
+		return v->screen->vrect;
+	/* TODO: this avoids crashing by returning NON-NULL when v->screen is
+	 * not assigned... to be fixed when we start using late scaling */
+	return selscreen->vrect;
 }
 

@@ -53,14 +53,11 @@ unmapdiv(Divide *d) {
 void
 div_set(Divide *d, int x) {
 	Rectangle r;
-	int scrn;
-
-	scrn = d->left ? d->left->screen : d->right->screen;
 
 	d->x = x;
 	r = rectaddpt(divimg->r, Pt(x - Dx(divimg->r)/2, 0));
-	r.min.y = selview->r[scrn].min.y;
-	r.max.y = selview->r[scrn].max.y;
+	r.min.y = view_rect(selview()).min.y;
+	r.max.y = view_rect(selview()).max.y;
 
 	reshapewin(d->w, r);
 	mapdiv(d);
@@ -100,14 +97,14 @@ drawdiv(Divide *d) {
 }
 
 static void
-update_imgs(void) {
+update_view_imgs(View *v) {
 	Divide *d;
 	int w, h;
 
 	w = 2 * (labelh(def.font) / 3);
 	w = max(w, 10);
 	/* XXX: Multihead. */
-	h = Dy(selview->screenr);
+	h = Dy(view_rect(selview()));
 
 	if(divimg) {
 		if(w == Dx(divimg->r) && h == Dy(divimg->r)
@@ -125,26 +122,34 @@ update_imgs(void) {
 		drawdiv(d);
 }
 
+static void
+update_imgs(void) {
+	int s;
+	for (s=0; s<nscreens; s++) {
+		WMScreen *scrn = screens[s];
+		View *v = scrn->selview;
+		if (!v)
+			continue;
+		update_view_imgs(v);
+	}
+}
+
 void
 div_update_all(void) {
 	Divide **dp, *d;
 	Area *a, *ap;
 	View *v;
-	int s;
 
 	update_imgs();
 
-	v = selview;
+	v = selview();
 	dp = &divs;
 	ap = nil;
-	foreach_column(v, s, a) {
-		if (ap && ap->screen != s)
-			ap = nil;
-
+	foreach_column(v, a) {
 		d = getdiv(&dp);
 		d->left = ap;
 		d->right = a;
-		div_set(d, a->r.min.x);
+		div_set(d, a->cr.min.x);
 		ap = a;
 		if (!ap)
 			d->side |= 1;
@@ -153,7 +158,7 @@ div_update_all(void) {
 			d = getdiv(&dp);
 			d->left = a;
 			d->right = nil;
-			div_set(d, a->r.max.x);
+			div_set(d, a->cr.max.x);
 			d->side |= 2;
 		}
 	}
