@@ -75,7 +75,6 @@ view_create(const char *name) {
 
 	v = emallocz(sizeof *v);
 	v->id = id++;
-	v->areas = emallocz(nscreens * sizeof *v->areas);
 
 	utflcpy(v->name, name, sizeof v->name);
 
