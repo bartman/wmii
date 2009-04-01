@@ -623,11 +623,7 @@ column_arrange(Area *a, bool dirty) {
 	if(a->sel->collapsed)
 		area_setsel(a, a->sel);
 	if(view_isselected(v)) {
-#if 0
 		//view_restack(v);
-#else
-		view_restack(v);
-#endif
 		client_resize(a->sel->client, a->sel->cr);
 		for(f=a->frame; f; f=f->anext)
 			client_resize(f->client, f->cr);
