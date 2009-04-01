@@ -994,10 +994,10 @@ client_setviews(Client *c, char **tags) {
 		}
 		if(*tags) {
 			if(!*fp || cmp > 0) {
+				kludge = c; /* FIXME */
 				f = frame_create(c, view_create(*tags));
 				if(!c->sel || view_isvisible(f->view))
 					c->sel = f;
-				kludge = c; /* FIXME */
 				view_attach(f->view, f);
 				kludge = nil;
 				f->cnext = *fp;
