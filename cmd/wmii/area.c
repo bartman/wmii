@@ -124,8 +124,9 @@ area_create(View *v, Area *pos, uint width) {
 	a->sel = nil;
 
 	a->cr = s->r;
-	a->cr.max.x = a->cr.min.x + width;
-	a->sr = FRect(0, 0, (float)Dx(s->r) / width, 1);
+	if (width)
+		a->cr.max.x = a->cr.min.x + width;
+	a->sr = FRect(0, 0, width ? (float)Dx(s->r) / width : 1, 1);
 
 	if(a->floating) {
 		v->floating = a;
