@@ -79,7 +79,7 @@ view_create(const char *name) {
 	utflcpy(v->name, name, sizeof v->name);
 
 	event("CreateTag %s\n", v->name);
-	area_create(v, nil, 0);
+	area_create(v, nil, 0);             /* create the floating area */
 
 	view_init(v);
 	
