@@ -240,8 +240,10 @@ init_screens(void) {
 	for(s=nscreens; s < m; s++)
 		screens[s] = emallocz(sizeof *screens[s]);
 
-	for(v=view; v; v=v->next)
+	for(v=view; v; v=v->next) {
+		fprintf(stderr, "WMII: %s:%u - should not init an existing view\n");
 		view_init(v);
+	}
 
 	nscreens = m;
 
@@ -310,7 +312,7 @@ distribute_views_on_screens(void)
 			num ++;
 		}
 		if (new_view_name)
-			view_select(new_view_name);
+			view_select_on(screen, new_view_name);
 	}
 	selscreen = findscreen(querypointer(&scr.root));
 }
