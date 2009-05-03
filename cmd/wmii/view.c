@@ -597,7 +597,7 @@ view_update_all(WMScreen *s) {
 
 	for(v=view; v; v=n) {
 		n=v->next;
-		if(view_isvisible(v) && v->screen != selscreen)
+		if(view_isvisible(v))
 			continue;
 		if(v != old && empty_p(v))
 			view_destroy(v);
