@@ -249,10 +249,12 @@ init_screens(void) {
 	for(s=nscreens; s < m; s++)
 		screens[s] = emallocz(sizeof *screens[s]);
 
+#if 0
 	for(v=view; v; v=v->next) {
 		fprintf(stderr, "WMII: %s:%u - should not init an existing view\n");
 		view_init(v);
 	}
+#endif
 
 	nscreens = m;
 
