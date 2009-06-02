@@ -1,19 +1,15 @@
-/* Copyright ©2007-2008 Kris Maglione <maglione.k at Gmail>
+/* Copyright ©2007-2009 Kris Maglione <maglione.k at Gmail>
  * See LICENSE file for license details.
  */
 #define _X11_VISIBLE
-#define ZP _ZP
-#define ZR _ZR
 #define pointerwin __pointerwin
 #include "dat.h"
 #include <limits.h>
 #include <math.h>
+#include <strings.h>
 #include <unistd.h>
 #include <bio.h>
 #include "fns.h"
-#undef  ZP /* These should be allocated in read-only memory, */
-#undef  ZR /* but declaring them const causes too much trouble
-            * elsewhere. */
 #undef  pointerwin
 
 const Point	ZP = {0, 0};
@@ -29,6 +25,8 @@ static MapEnt*	abucket[137];
 
 static int	errorhandler(Display*, XErrorEvent*);
 static int	(*xlib_errorhandler) (Display*, XErrorEvent*);
+
+static XftColor*	xftcolor(ulong);
 
 
 /* Rectangles/Points */
@@ -253,9 +251,18 @@ freeimage(Image *img) {
 
 	assert(img->type == WImage);
 
+	if(img->xft)
+		XftDrawDestroy(img->xft);
 	XFreePixmap(display, img->w);
 	XFreeGC(display, img->gc);
 	free(img);
+}
+
+static XftDraw*
+xftdrawable(Image *img) {
+	if(img->xft == nil)
+		img->xft = XftDrawCreate(display, img->w, scr.visual, scr.colormap);
+	return img->xft;
 }
 
 /* Windows */
@@ -313,6 +320,8 @@ void
 destroywindow(Window *w) {
 	assert(w->type == WWindow);
 	sethandler(w, nil);
+	if(w->xft)
+		XftDrawDestroy(w->xft);
 	if(w->gc)
 		XFreeGC(display, w->gc);
 	XDestroyWindow(display, w->w);
@@ -565,16 +574,25 @@ drawstring(Image *dst, Font *font,
 	}
 
 	setgccol(dst, col);
-	if(font->set)
+	switch(font->type) {
+	case FFontSet:
 		Xutf8DrawString(display, dst->w,
-				font->set, dst->gc,
+				font->font.set, dst->gc,
 				x, y,
 				buf, len);
-	else {
-		XSetFont(display, dst->gc, font->xfont->fid);
+		break;
+	case FXft:
+		XftDrawStringUtf8(xftdrawable(dst), xftcolor(col),
+				  font->font.xft,
+				  x, y, (uchar*)buf, len);
+		break;
+	case FX11:
+		XSetFont(display, dst->gc, font->font.x11->fid);
 		XDrawString(display, dst->w, dst->gc,
-				x, y,
-				buf, len);
+			    x, y, buf, len);
+		break;
+	default:
+		die("Invalid font type.");
 	}
 
 done:
@@ -621,55 +639,98 @@ loadcolor(CTuple *c, char *str) {
 	    && namedcolor(buf+16, &c->border);
 }
 
+static XftColor*
+xftcolor(ulong col) {
+	XftColor *c;
+
+	c = emallocz(sizeof *c);
+	*c = (XftColor) {
+		col, {
+			(col>>8)  & 0xff00,
+			(col>>0)  & 0xff00,
+			(col<<8)  & 0xff00,
+			(col>>16) & 0xff00,
+		}
+	};
+	return freelater(c);
+}
+
 /* Fonts */
 Font*
 loadfont(char *name) {
-	Biobuf *b;
-	Font *f;
 	XFontStruct **xfonts;
 	char **missing, **font_names;
+	Biobuf *b;
+	Font *f;
 	int n, i;
 
 	missing = nil;
 	f = emallocz(sizeof *f);
 	f->name = estrdup(name);
-	f->set = XCreateFontSet(display, name, &missing, &n, nil);
-	if(missing) {
-		b = Bfdopen(dup(2), O_WRONLY);
-		Bprint(b, "%s: note: missing fontset%s for '%s':", argv0,
-				(n > 1 ? "s" : ""), name);
-		for(i = 0; i < n; i++)
-			Bprint(b, "%s %s", (i ? "," : ""), missing[i]);
-		Bprint(b, "\n");
-		Bterm(b);
-		freestringlist(missing);
-	}
+	if(!strncmp(f->name, "xft:", 4)) {
+		f->type = FXft;
 
-	if(f->set) {
-		XFontsOfFontSet(f->set, &xfonts, &font_names);
-		f->ascent = xfonts[0]->ascent;
-		f->descent = xfonts[0]->descent;
+		f->font.xft = XftFontOpenXlfd(display, scr.screen, f->name + 4);
+		if(!f->font.xft)
+			f->font.xft = XftFontOpenName(display, scr.screen, f->name + 4);
+		if(!f->font.xft)
+			goto error;
+
+		f->ascent = f->font.xft->ascent;
+		f->descent = f->font.xft->descent;
 	}else {
-		f->xfont = XLoadQueryFont(display, name);
-		if(!f->xfont) {
-			fprint(2, "%s: cannot load font: %s\n", argv0, name);
-			freefont(f);
-			return nil;
+		f->font.set = XCreateFontSet(display, name, &missing, &n, nil);
+		if(missing) {
+			b = Bfdopen(dup(2), O_WRONLY);
+			Bprint(b, "%s: note: missing fontset%s for '%s':", argv0,
+					(n > 1 ? "s" : ""), name);
+			for(i = 0; i < n; i++)
+				Bprint(b, "%s %s", (i ? "," : ""), missing[i]);
+			Bprint(b, "\n");
+			Bterm(b);
+			freestringlist(missing);
 		}
 
-		f->ascent = f->xfont->ascent;
-		f->descent = f->xfont->descent;
+		if(f->font.set) {
+			f->type = FFontSet;
+			XFontsOfFontSet(f->font.set, &xfonts, &font_names);
+			f->ascent = xfonts[0]->ascent;
+			f->descent = xfonts[0]->descent;
+		}else {
+			f->type = FX11;
+			f->font.x11 = XLoadQueryFont(display, name);
+			if(!f->font.x11)
+				goto error;
+
+			f->ascent = f->font.x11->ascent;
+			f->descent = f->font.x11->descent;
+		}
 	}
 	f->height = f->ascent + f->descent;
 	return f;
+
+error:
+	fprint(2, "%s: cannot load font: %s\n", argv0, name);
+	f->type = 0;
+	freefont(f);
+	return nil;
 }
 
 void
 freefont(Font *f) {
-	if(f->set)
-		XFreeFontSet(display, f->set);
-	if(f->xfont)
-		XFreeFont(display, f->xfont);
+	switch(f->type) {
+	case FFontSet:
+		XFreeFontSet(display, f->font.set);
+		break;
+	case FXft:
+		XftFontClose(display, f->font.xft);
+		break;
+	case FX11:
+		XFreeFont(display, f->font.x11);
+		break;
+	default:
+		break;
+	}
 	free(f->name);
 	free(f);
 }
@@ -677,12 +738,21 @@ freefont(Font *f) {
 uint
 textwidth_l(Font *font, char *text, uint len) {
 	XRectangle r;
+	XGlyphInfo i;
 
-	if(font->set) {
-		Xutf8TextExtents(font->set, text, len, nil, &r);
+	switch(font->type) {
+	case FFontSet:
+		Xutf8TextExtents(font->font.set, text, len, nil, &r);
 		return r.width;
+	case FXft:
+		XftTextExtentsUtf8(display, font->font.xft, (uchar*)text, len, &i);
+		return i.width;
+	case FX11:
+		return XTextWidth(font->font.x11, text, len);
+	default:
+		die("Invalid font type");
+		return 0; /* shut up ken */
 	}
-	return XTextWidth(font->xfont, text, len);
 }
 
 uint
@@ -730,6 +800,48 @@ sendevent(Window *w, bool propegate, long mask, XEvent *e) {
 KeyCode
 keycode(char *name) {
 	return XKeysymToKeycode(display, XStringToKeysym(name));
+}
+
+typedef struct KMask KMask;
+
+static struct KMask {
+	int		mask;
+	const char*	name;
+} masks[] = {
+	{ShiftMask,   "Shift"},
+	{ControlMask, "Control"},
+	{Mod1Mask,    "Mod1"},
+	{Mod2Mask,    "Mod2"},
+	{Mod3Mask,    "Mod3"},
+	{Mod4Mask,    "Mod4"},
+	{Mod5Mask,    "Mod5"},
+	{0,}
+};
+
+bool
+parsekey(char *str, int *mask, char **key) {
+	static char *keys[16];
+	KMask *m;
+	int i, nkeys;
+
+	*mask = 0;
+	nkeys = tokenize(keys, nelem(keys), str, '-');
+	for(i=0; i < nkeys; i++) {
+		for(m=masks; m->mask; m++)
+			if(!strcasecmp(m->name, keys[i])) {
+				*mask |= m->mask;
+				goto next;
+			}
+		break;
+	next: continue;
+	}
+	if(key) {
+		if(nkeys)
+			*key = keys[i];
+		return i == nkeys - 1;
+	}
+	else
+		return i == nkeys;
 }
 
 void
@@ -854,7 +966,8 @@ getprop_ulong(Window *w, char *prop, char *type,
 
 char**
 strlistdup(char *list[]) {
-	char **p, *q;
+	char **p;
+	char *q;
 	int i, m, n;
 
 	n = 0;
@@ -1077,11 +1190,11 @@ sethints(Window *w) {
 		h->aspect.max.y = xs.max_aspect.y;
 	}
 
-	h->position = ((xs.flags & (USPosition|PPosition)) != 0);
+	h->position = (xs.flags & (USPosition|PPosition)) != 0;
 
-	p = ZP;
 	if(!(xs.flags & PWinGravity))
 		xs.win_gravity = NorthWestGravity;
+	p = ZP;
 	switch (xs.win_gravity) {
 	case EastGravity:
 	case CenterGravity:
@@ -1107,7 +1220,7 @@ sethints(Window *w) {
 		break;
 	}
 	h->grav = p;
-	h->gravstatic = (xs.win_gravity==StaticGravity);
+	h->gravstatic = (xs.win_gravity == StaticGravity);
 }
 
 Rectangle

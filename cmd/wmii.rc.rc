@@ -133,6 +133,10 @@ fn wi_seltag {
 	wmiir read /tag/sel/ctl | sed 1q
 }
 
+fn wi_selclient {
+	wmiir read /client/sel/ctl | sed 1q
+}
+
 fn wi_readevent {
 	wmiir read /event
 }
@@ -153,6 +157,10 @@ fn wi_eventloop {
 
 fn Event-Key {
 	Key-$1 $1
+}
+
+fn Event-Quit {
+	exit
 }
 
 fn Event-Start {

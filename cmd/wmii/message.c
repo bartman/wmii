@@ -1,4 +1,4 @@
-/* Copyright ©2006-2008 Kris Maglione <maglione.k at Gmail>
+/* Copyright ©2006-2009 Kris Maglione <maglione.k at Gmail>
  * See LICENSE file for license details.
  */
 #include "dat.h"
@@ -108,6 +108,11 @@ static char* incmodetab[] = {
 	"show",
 	"squeeze",
 };
+static char* toggletab[] = {
+	"off",
+	"on",
+	"toggle",
+};
 
 /* Edit ,y/^[a-zA-Z].*\n.* {\n/d
  * Edit s/^([a-zA-Z].*)\n(.*) {\n/\1 \2;\n/
@@ -154,8 +159,8 @@ setdef(int *ptr, char *s, char *tab[], int ntab) {
 }
 
 static int
-gettoggle(IxpMsg *m) {
-	switch(getsym(msg_getword(m))) {
+gettoggle(char *s) {
+	switch(getsym(s)) {
 	case LON:	return On;
 	case LOFF:	return Off;
 	case LTOGGLE:	return Toggle;
@@ -392,8 +397,21 @@ getframe(View *v, int scrn, IxpMsg *m) {
 }
 
 char*
+readctl_client(Client *c) {
+	bufclear();
+	bufprint("%C\n", c);
+	if(c->fullscreen >= 0)
+		bufprint("Fullscreen %d\n", c->fullscreen);
+	else
+		bufprint("Fullscreen off\n");
+	bufprint("Urgent %s\n", toggletab[(int)c->urgent]);
+	return buffer;
+}
+
+char*
 message_client(Client *c, IxpMsg *m) {
 	char *s;
+	long l;
 	int i;
 
 	s = msg_getword(m);
@@ -402,6 +420,7 @@ message_client(Client *c, IxpMsg *m) {
 	 * Toggle ::= on
 	 *	    | off
 	 *	    | toggle
+	 *	    | <screen>
 	 * Fullscreen <toggle>
 	 * Urgent <toggle>
 	 * kill
@@ -410,10 +429,15 @@ message_client(Client *c, IxpMsg *m) {
 
 	switch(getsym(s)) {
 	case LFULLSCREEN:
-		i = gettoggle(m);
-		if(i == -1)
-			return Ebadusage;
-		fullscreen(c, i);
+		s = msg_getword(m);
+		if(getlong(s, &l))
+			fullscreen(c, On, l);
+		else {
+			i = gettoggle(s);
+			if(i == -1)
+				return Ebadusage;
+			fullscreen(c, i, -1);
+		}
 		break;
 	case LKILL:
 		client_kill(c, true);
@@ -422,7 +446,7 @@ message_client(Client *c, IxpMsg *m) {
 		client_kill(c, false);
 		break;
 	case LURGENT:
-		i = gettoggle(m);
+		i = gettoggle(msg_getword(m));
 		if(i == -1)
 			return Ebadusage;
 		client_seturgent(c, i, UrgManager);
@@ -438,6 +462,7 @@ message_root(void *p, IxpMsg *m) {
 	Font *fn;
 	char *s, *ret;
 	ulong n;
+	int i;
 
 	USED(p);
 	ret = nil;
@@ -494,13 +519,11 @@ message_root(void *p, IxpMsg *m) {
 		break;
 	case LGRABMOD:
 		s = msg_getword(m);
-		n = str2modmask(s);
-
-		if((n & (Mod1Mask|Mod2Mask|Mod3Mask|Mod4Mask|Mod5Mask)) == 0)
+		if(!parsekey(s, &i, nil) || i == 0)
 			return Ebadvalue;
 
 		utflcpy(def.grabmod, s, sizeof def.grabmod);
-		def.mod = n;
+		def.mod = i;
 		break;
 	case LINCMODE:
 		if(!setdef(&def.incmode, msg_getword(m), incmodetab, nelem(incmodetab)))
@@ -556,7 +579,7 @@ readctl_root(void) {
 	bufprint("focuscolors %s\n", def.focuscolor.colstr);
 	bufprint("font %s\n", def.font->name);
 	bufprint("grabmod %s\n", def.grabmod);
-	bufprint("incmode %s\n", incmodetab[screen->barpos]);
+	bufprint("incmode %s\n", incmodetab[def.incmode]);
 	bufprint("normcolors %s\n", def.normcolor.colstr);
 	bufprint("view %s\n", selview->name);
 	return buffer;
