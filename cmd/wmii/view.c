@@ -1,5 +1,5 @@
 /* Copyright ©2004-2006 Anselm R. Garbe <garbeam at gmail dot com>
- * Copyright ©2006-2008 Kris Maglione <maglione.k at Gmail>
+ * Copyright ©2006-2009 Kris Maglione <maglione.k at Gmail>
  * See LICENSE file for license details.
  */
 #include "dat.h"
@@ -658,8 +658,10 @@ view_index(View *v) {
 WMScreen*
 view_which_screen(View *v)
 {
+#if 0
 	int s;
 	WMScreen *scrn;
+#endif
 
 	if (!v)
 		return NULL;

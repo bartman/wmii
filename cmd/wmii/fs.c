@@ -1,4 +1,4 @@
-/* Copyright ©2006-2008 Kris Maglione <maglione.k at Gmail>
+/* Copyright ©2006-2009 Kris Maglione <maglione.k at Gmail>
  * See LICENSE file for license details.
  */
 #include "dat.h"
@@ -228,8 +228,10 @@ dostat(Stat *s, IxpFileId *f) {
 	s->muid = user;
 }
 
-/* All lookups and directory organization should be performed through
- * lookup_file, mostly through the dirtabs[] tree. */
+/* 
+ * All lookups and directory organization should be performed through
+ * lookup_file, mostly through the dirtab[] tree.
+ */
 static IxpFileId*
 lookup_file(IxpFileId *parent, char *name)
 {
@@ -266,12 +268,15 @@ lookup_file(IxpFileId *parent, char *name)
 						file->p.client = c;
 						file->id = c->w.w;
 						file->index = c->w.w;
-					}if(name) goto LastItem;
+					}
+					if(name)
+						goto LastItem;
 				}
 				SET(id);
 				if(name) {
 					id = (uint)strtol(name, &name, 16);
-					if(*name) goto NextItem;
+					if(*name)
+						goto NextItem;
 				}
 				for(c=client; c; c=c->next) {
 					if(!name || c->w.w == id) {
@@ -281,7 +286,8 @@ lookup_file(IxpFileId *parent, char *name)
 						file->id = c->w.w;
 						file->index = c->w.w;
 						assert(file->tab.name);
-						if(name) goto LastItem;
+						if(name)
+							goto LastItem;
 					}
 				}
 				break;
@@ -290,7 +296,8 @@ lookup_file(IxpFileId *parent, char *name)
 					if(!name || !strcmp(name, debugtab[i])) {
 						push_file(debugtab[i]);
 						file->id = i;
-						if(name) goto LastItem;
+						if(name)
+							goto LastItem;
 					}
 				break;
 			case FsDTags:
@@ -301,7 +308,9 @@ lookup_file(IxpFileId *parent, char *name)
 						file->volatil = true;
 						file->p.view = curview;
 						file->id = curview->id;
-					}if(name) goto LastItem;
+					}
+					if(name)
+						goto LastItem;
 				}
 				for(v=view; v; v=v->next) {
 					if(!name || !strcmp(name, v->name)) {
@@ -309,7 +318,8 @@ lookup_file(IxpFileId *parent, char *name)
 						file->volatil = true;
 						file->p.view = v;
 						file->id = v->id;
-						if(name) goto LastItem;
+						if(name)
+							goto LastItem;
 					}
 				}
 				break;
@@ -339,7 +349,8 @@ lookup_file(IxpFileId *parent, char *name)
 						file->volatil = true;
 						file->p.bar = b;
 						file->id = b->id;
-						if(name) goto LastItem;
+						if(name)
+							goto LastItem;
 					}
 				}
 				break;
@@ -371,7 +382,8 @@ lookup_file(IxpFileId *parent, char *name)
 				file->p.rule = &def.tagrules;
 				break;
 			}
-			if(name) goto LastItem;
+			if(name)
+				goto LastItem;
 		}
 	NextItem:
 		continue;
@@ -503,18 +515,13 @@ fs_read(Ixp9Req *r) {
 			respond(r, nil);
 			return;
 		case FsFCctl:
-			if(r->ifcall.io.offset) {
-				respond(r, nil);
-				return;
-			}
-			r->ofcall.io.data = smprint("%C", f->p.client);
-			r->ofcall.io.count = strlen(r->ofcall.io.data); /* will die if nil */
+			buf = readctl_client(f->p.client);
+			ixp_srv_readbuf(r, buf, strlen(buf));
 			respond(r, nil);
 			return;
 		case FsFTindex:
 			buf = view_index(f->p.view);
-			n = strlen(buf);
-			ixp_srv_readbuf(r, buf, n);
+			ixp_srv_readbuf(r, buf, strlen(buf));
 			respond(r, nil);
 			return;
 		case FsFTctl:
@@ -531,10 +538,7 @@ fs_read(Ixp9Req *r) {
 			return;
 		}
 	}
-	/*
-	 * This is an assert because this should this should not be called if
-	 * the file is not open for reading.
-	 */
+	/* This should not be called if the file is not open for reading. */
 	die("Read called on an unreadable file");
 }
 
@@ -579,6 +583,8 @@ fs_write(Ixp9Req *r) {
 		return;
 	case FsFCtags:
 		ixp_srv_data2cstring(r);
+		print("%d\n", r->ifcall.io.count);
+		print("%s\n", r->ifcall.io.data);
 		apply_tags(f->p.client, r->ifcall.io.data);
 		r->ofcall.io.count = r->ifcall.io.count;
 		respond(r, nil);
@@ -587,6 +593,7 @@ fs_write(Ixp9Req *r) {
 		i = strlen(f->p.bar->buf);
 		p = f->p.bar->buf;
 		ixp_srv_writebuf(r, &p, &i, 279);
+		bar_load(f->p.bar);
 		r->ofcall.io.count = i - r->ifcall.io.offset;
 		respond(r, nil);
 		return;
@@ -617,9 +624,7 @@ fs_write(Ixp9Req *r) {
 		return;
 	}
 	/*
-	 * This is an assert because this function should not be called if
-	 * the file is not open for writing.
-	 */
+	/* This should not be called if the file is not open for writing. */
 	die("Write called on an unwritable file");
 }
 
@@ -711,8 +716,6 @@ fs_remove(Ixp9Req *r) {
 void
 fs_clunk(Ixp9Req *r) {
 	IxpFileId *f;
-	char *p, *q;
-	IxpMsg m;
 	
 	f = r->fid->aux;
 	if(!ixp_srv_verifyfile(f, lookup_file)) {
@@ -743,29 +746,6 @@ fs_clunk(Ixp9Req *r) {
 		break;
 	case FsFKeys:
 		update_keys();
-		break;
-	case FsFBar:
-		p = f->p.bar->buf;
-		m = ixp_message(p, strlen(p), 0);
-		msg_parsecolors(&m, &f->p.bar->col);
-
-		q = (char*)m.end-1;
-		while(q >= (char*)m.pos && *q == '\n')
-			*q-- = '\0';
-
-		q = f->p.bar->text;
-		utflcpy(q, (char*)m.pos, sizeof ((Bar*)0)->text);
-
-#if 1
-		bar_draw(f->p.bar->screen);
-#else
-		{
-		struct WMScreen **sp;
-		for (sp=screens; *sp; sp++)
-			bar_draw(*sp);
-		}
-#endif
-
 		break;
 	}
 	respond(r, nil);

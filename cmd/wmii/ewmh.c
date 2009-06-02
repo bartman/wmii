@@ -1,4 +1,4 @@
-/* Copyright ©2007-2008 Kris Maglione <maglione.k at Gmail>
+/* Copyright ©2007-2009 Kris Maglione <maglione.k at Gmail>
  * See LICENSE file for license details.
  */
 #include "dat.h"
@@ -11,9 +11,9 @@ static void	ewmh_getwinstate(Client*);
 static void	ewmh_setstate(Client*, Atom, int);
 
 #define Net(x) ("_NET_" x)
-#define	Action(x) ("_NET_WM_ACTION_" x)
-#define	State(x) ("_NET_WM_STATE_" x)
-#define	Type(x) ("_NET_WM_WINDOW_TYPE_" x)
+#define	Action(x) Net("WM_ACTION_" x)
+#define	State(x) Net("WM_STATE_" x)
+#define	Type(x) Net("WM_WINDOW_TYPE_" x)
 #define NET(x) xatom(Net(x))
 #define	ACTION(x) xatom(Action(x))
 #define	STATE(x) xatom(State(x))
@@ -222,13 +222,13 @@ void
 ewmh_getwintype(Client *c) {
 	static Prop props[] = {
 		{Type("DESKTOP"), TypeDesktop},
-		{Type("DOCK"), TypeDock},
+		{Type("DOCK"),    TypeDock},
 		{Type("TOOLBAR"), TypeToolbar},
-		{Type("MENU"), TypeMenu},
+		{Type("MENU"),    TypeMenu},
 		{Type("UTILITY"), TypeUtility},
-		{Type("SPLASH"), TypeSplash},
-		{Type("DIALOG"), TypeDialog},
-		{Type("NORMAL"), TypeNormal},
+		{Type("SPLASH"),  TypeSplash},
+		{Type("DIALOG"),  TypeDialog},
+		{Type("NORMAL"),  TypeNormal},
 		{0, }
 	};
 	long mask;
@@ -322,7 +322,7 @@ ewmh_setstate(Client *c, Atom state, int action) {
 		return;
 
 	if(state == STATE("FULLSCREEN"))
-		fullscreen(c, action);
+		fullscreen(c, action, -1);
 	else
 	if(state == STATE("DEMANDS_ATTENTION"))
 		client_seturgent(c, action, UrgClient);
@@ -355,8 +355,7 @@ ewmh_clientmessage(XClientMessageEvent *e) {
 		case StateUnset:  action = Off;    break;
 		case StateSet:    action = On;     break;
 		case StateToggle: action = Toggle; break;
-		default:
-			return -1;
+		default: return -1;
 		}
 		Dprint(DEwmh, "\tAction: %s\n", TOGGLE(action));
 		ewmh_setstate(c, l[1], action);

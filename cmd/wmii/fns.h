@@ -59,6 +59,7 @@ void	bar_destroy(Bar**, Bar*);
 void	bar_draw(WMScreen*);
 Bar*	bar_find(Bar*, const char*);
 void	bar_init(WMScreen*);
+void	bar_load(Bar*);
 void	bar_resize(WMScreen*);
 void	bar_sety(WMScreen*, int);
 void	bar_setbounds(WMScreen*, int, int);
@@ -82,13 +83,13 @@ void	client_prop(Client*, Atom);
 void	client_reparent(Client*, Window*, Point);
 void	client_resize(Client*, Rectangle);
 void	client_setcursor(Client*, Cursor);
-void	client_seturgent(Client*, bool, int);
+void	client_seturgent(Client*, int, int);
 void	client_setviews(Client*, char**);
 void	client_unmap(Client*, int state);
 Frame*	client_viewframe(Client *c, View *v);
 char*	clientname(Client*);
 void	focus(Client*, bool restack);
-void	fullscreen(Client*, int);
+void	fullscreen(Client*, int, long);
 Client*	group_leader(Group*);
 int	map_frame(Client*);
 Client*	selclient(void);
@@ -200,7 +201,6 @@ Rectangle	rect_intersection(Rectangle, Rectangle);
 /* key.c */
 void	init_lock_keys(void);
 void	kpress(XWindow, ulong mod, KeyCode);
-ulong	str2modmask(const char*);
 void	update_keys(void);
 
 /* main.c */
@@ -227,6 +227,7 @@ char*	msg_getword(IxpMsg*);
 char*	msg_parsecolors(IxpMsg*, CTuple*);
 char*	msg_selectarea(Area*, IxpMsg*);
 char*	msg_sendclient(View*, IxpMsg*, bool swap);
+char*	readctl_client(Client*);
 char*	readctl_root(void);
 char*	readctl_view(View*);
 char*	readctl_screen(WMScreen*);
@@ -249,7 +250,7 @@ void	mouse_resize(Client*, Align, bool);
 void	mouse_resizecol(Divide*);
 bool	readmotion(Point*);
 int	readmouse(Point*, uint*);
-Align	snap_rect(Rectangle *rects, int num, Rectangle *current, Align *mask, int snapw);
+Align	snap_rect(const Rectangle *rects, int num, Rectangle *current, Align *mask, int snapw);
 
 /* printevent.c */
 void	printevent(XEvent*);

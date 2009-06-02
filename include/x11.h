@@ -6,6 +6,7 @@
 #define Screen XScreen
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
+#include <X11/Xft/Xft.h>
 #ifdef _X11_VISIBLE
 #  include <X11/Xatom.h>
 #  include <X11/extensions/shape.h>
@@ -27,12 +28,20 @@ enum Align {
 	Center = NEast | SWest,
 };
 
+enum FontType {
+	FX11 = 1,
+	FFontSet,
+	FXft,
+};
+
 enum WindowType {
 	WWindow,
 	WImage,
 };
 
 typedef enum Align Align;
+typedef enum FontType FontType;
+typedef enum WindowType WindowType;
 
 typedef XSetWindowAttributes WinAttr;
 
@@ -88,12 +97,16 @@ struct Ewmh {
 };
 
 struct Font {
-	XFontStruct *xfont;
-	XFontSet set;
-	int ascent;
-	int descent;
-	uint height;
-	char *name;
+	int	type;
+	union {
+		XFontStruct*	x11;
+		XFontSet	set;
+		XftFont*	xft;
+	} font;
+	int	ascent;
+	int	descent;
+	uint	height;
+	char*	name;
 };
 
 struct Handlers {
@@ -134,6 +147,7 @@ struct Window {
 	int		type;
 	XID		w;
 	GC		gc;
+	XftDraw*	xft;
 	Rectangle	r;
 	int		border;
 	Window*		parent;
@@ -172,8 +186,8 @@ struct Screen {
 Display *display;
 Screen scr;
 
-extern Point ZP;
-extern Rectangle ZR;
+extern const Point ZP;
+extern const Rectangle ZR;
 extern Window* pointerwin;
 
 Point Pt(int x, int y);
@@ -244,6 +258,7 @@ int	mapwin(Window*);
 void	movewin(Window*, Point);
 Point	mulpt(Point p, Point q);
 bool	namedcolor(char *name, ulong*);
+bool	parsekey(char*, int*, char**);
 int	pointerscreen(void);
 Point	querypointer(Window*);
 void	raisewin(Window*);

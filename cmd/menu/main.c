@@ -1,4 +1,4 @@
-/* Copyright ©2006-2008 Kris Maglione <fbsdaemon@gmail.com>
+/* Copyright ©2006-2009 Kris Maglione <fbsdaemon@gmail.com>
  * See LICENSE file for license details.
  */
 #define IXP_NO_P9_
@@ -10,15 +10,14 @@
 #include <strings.h>
 #include <unistd.h>
 #include <bio.h>
+#include <clientutil.h>
 #include "fns.h"
 #define link _link
 
-static const char version[] = "wimenu-"VERSION", ©2008 Kris Maglione\n";
-static IxpClient* client;
-static IxpCFid*	ctlfid;
+static const char version[] = "wimenu-"VERSION", ©2009 Kris Maglione\n";
+static Biobuf*	cmplbuf;
 static Biobuf*	inbuf;
-static char 	ctl[1024];
-static char*	ectl;
+static bool	alwaysprint;
 
 static void
 usage(void) {
@@ -51,27 +50,6 @@ void dprint(long mask, char *fmt, ...) {
 	va_end(ap);
 }
 
-static char*
-readctl(char *key) {
-	char *s, *p;
-	int nkey, n;
-
-	nkey = strlen(key);
-	p = ctl - 1;
-	do {
-		p++;
-		if(!strncmp(p, key, nkey)) {
-			p += nkey;
-			s = strchr(p, '\n');
-			n = (s ? s : ectl) - p;
-			s = freelater(emalloc(n + 1));
-			s[n] = '\0';
-			return strncpy(s, p, n);
-		}
-	} while((p = strchr(p, '\n')));
-	return "";
-}
-
 static void
 splice(Item *i) {
 	i->next->prev = i->prev;
@@ -88,9 +66,13 @@ populate_list(Biobuf *buf, bool hist) {
 	Item ret;
 	Item *i;
 	char *p;
+	bool stop;
 
+	stop = !hist && !isatty(buf->fid);
 	i = &ret;
 	while((p = Brdstr(buf, '\n', true))) {
+		if(stop && p[0] == '\0')
+			break;
 		link(i, emallocz(sizeof *i));
 		i->next_link = i->next;
 		i = i->next;
@@ -107,6 +89,21 @@ populate_list(Biobuf *buf, bool hist) {
 	link(i, &ret);
 	splice(&ret);
 	return ret.next != &ret ? ret.next : nil;
+}
+
+static void
+check_competions(IxpConn *c) {
+	char *s;
+
+	s = Brdstr(cmplbuf, '\n', true);
+	if(!s) {
+		ixp_hangup(c);
+		return;
+	}
+	input.filter_start = strtol(s, nil, 10);
+	items = populate_list(cmplbuf, false);
+	update_filter(false);
+	menu_draw();
 }
 
 Item*
@@ -144,11 +141,20 @@ filter_list(Item *i, char *filter) {
 }
 
 void
-update_filter(void) {
-	/* TODO: Perhaps filter only previous matches unless filter
-	 * has been truncated.
-	 */
-	matchfirst = matchstart = matchidx = filter_list(items, input.string);
+update_filter(bool print) {
+	char *filter;
+
+	filter = input.string + min(input.filter_start, input.pos - input.string);
+	if(input.pos < input.end)
+		filter = freelater(estrndup(filter, input.pos - filter));
+
+	matchidx = nil;
+	matchfirst = matchstart = filter_list(items, filter);
+	if(alwaysprint && print) {
+		write(1, input.string, input.pos - input.string);
+		write(1, "", 1);
+		write(1, input.pos, input.end - input.pos + 1);
+	}
 }
 
 /*
@@ -182,7 +188,7 @@ preselect(IxpServer *s) {
 	check_x_event(nil);
 }
 
-#define SCREEN_WITH_POINTER -1
+enum { PointerScreen = -1 };
 
 void
 init_screens(int screen_hint) {
@@ -191,11 +197,10 @@ init_screens(int screen_hint) {
 	int i, n;
 
 	rects = xinerama_screens(&n);
-	if (screen_hint >= 0 && screen_hint < n) {
-		/* we were given a valid screen index, use that */
+	if (screen_hint >= 0 && screen_hint < n)
+		/* We were given a valid screen index, use that. */
 		i = screen_hint;
-
-	} else {
+	else {
 		/* Pick the screen with the pointer, for now. Later,
 		 * try for the screen with the focused window first.
 		 */
@@ -219,8 +224,10 @@ distribute_views_on_screens(void)
 int
 main(int argc, char *argv[]) {
 	Item *item;
-	char *address;
-	char *histfile;
+	static char *address;
+	static char *histfile;
+	static char *keyfile;
+	static bool nokeys;
 	int i;
 	long ndump;
 	int screen;
@@ -228,10 +235,7 @@ main(int argc, char *argv[]) {
 	quotefmtinstall();
 	fmtinstall('r', errfmt);
 	address = getenv("WMII_ADDRESS");
-	histfile = nil;
-	prompt = nil;
-	promptw = 0;
-	screen = SCREEN_WITH_POINTER;
+	screen = PointerScreen;
 
 	find = strstr;
 	compare = strncmp;
@@ -242,8 +246,20 @@ main(int argc, char *argv[]) {
 	case 'a':
 		address = EARGF(usage());
 		break;
+	case 'c':
+		alwaysprint = true;
+		break;
 	case 'h':
 		histfile = EARGF(usage());
+		break;
+	case 'i':
+		find = strcasestr;
+		compare = strncasecmp;
+		break;
+	case 'K':
+		nokeys = true;
+	case 'k':
+		keyfile = EARGF(usage());
 		break;
 	case 'n':
 		ndump = strtol(EARGF(usage()), nil, 10);
@@ -253,10 +269,6 @@ main(int argc, char *argv[]) {
 		break;
 	case 's':
 		screen = strtol(EARGF(usage()), nil, 10);
-		break;
-	case 'i':
-		find = strcasestr;
-		compare = strncasecmp;
 		break;
 	default:
 		usage();
@@ -273,16 +285,7 @@ main(int argc, char *argv[]) {
 	if(!isatty(0))
 		menu_init();
 
-	if(address && *address)
-		client = ixp_mount(address);
-	else
-		client = ixp_nsmount("wmii");
-	if(client == nil)
-		fatal("can't mount: %r\n");
-
-	ctlfid = ixp_open(client, "ctl", OREAD);
-	i = ixp_read(ctlfid, ctl, 1023);
-	ectl = ctl + i;
+	client_init(address);
 
 	srv.preselect = preselect;
 	ixp_listen(&srv, ConnectionNumber(display), nil, check_x_event, end);
@@ -294,12 +297,22 @@ main(int argc, char *argv[]) {
 	if(!font)
 		fatal("Can't load font %q", readctl("font "));
 
-	inbuf = Bfdopen(0, OREAD);
-	items = populate_list(inbuf, false);
-	caret_insert("", true);
-	update_filter();
+	cmplbuf = Bfdopen(0, OREAD);
+	items = populate_list(cmplbuf, false);
+	if(!isatty(cmplbuf->fid))
+		ixp_listen(&srv, cmplbuf->fid, inbuf, check_competions, nil);
 
-	Bterm(inbuf);
+	caret_insert("", true);
+	update_filter(false);
+
+	if(!nokeys)
+		parse_keys(binding_spec);
+	if(keyfile) {
+		i = open(keyfile, O_RDONLY);
+		if(read(i, buffer, sizeof(buffer)) > 0)
+			parse_keys(buffer);
+	}
+
 	histidx = &hist;
 	link(&hist, &hist);
 	if(histfile) {

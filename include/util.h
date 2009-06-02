@@ -39,6 +39,7 @@ void*	emalloc(uint);
 void*	emallocz(uint);
 void*	erealloc(void*, uint);
 char*	estrdup(const char*);
+char*	estrndup(const char*, uint);
 void	fatal(const char*, ...);
 void*	freelater(void*);
 int	max(int, int);
@@ -46,7 +47,8 @@ int	min(int, int);
 uint	strlcat(char*, const char*, uint);
 char*	strcasestr(const char*, const char*);
 char*	sxprint(const char*, ...);
-uint	tokenize(char **, uint, char*, char);
+uint	tokenize(char**, uint, char*, char);
+uint	stokenize(char**, uint, char*, char*);
 int	utflcpy(char*, const char*, int);
 char*	vsxprint(const char*, va_list);
 

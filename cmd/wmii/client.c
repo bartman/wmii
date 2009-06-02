@@ -1,5 +1,5 @@
 /* Copyright ©2004-2006 Anselm R. Garbe <garbeam at gmail dot com>
- * Copyright ©2006-2008 Kris Maglione <maglione.k at Gmail>
+ * Copyright ©2006-2009 Kris Maglione <maglione.k at Gmail>
  * See LICENSE file for license details.
  */
 #include "dat.h"
@@ -204,7 +204,7 @@ client_manage(Client *c) {
 	if(Dx(c->r) == Dx(selscreen->r))
 	if(Dy(c->r) == Dy(selscreen->r))
 	if(c->w.ewmh.type == 0)
-		fullscreen(c, true);
+		fullscreen(c, true, -1);
 
 	tags = getprop_string(&c->w, "_WMII_TAGS");
 
@@ -605,7 +605,7 @@ client_kill(Client *c, bool nice) {
 }
 
 void
-fullscreen(Client *c, int fullscreen) {
+fullscreen(Client *c, int fullscreen, long screen) {
 	Frame *f;
 	bool wassel;
 	
@@ -635,7 +635,7 @@ fullscreen(Client *c, int fullscreen) {
 			}
 		}
 	else {
-		c->fullscreen = ownerscreen(c->r);
+		c->fullscreen = screen >= 0 ? screen : ownerscreen(c->r);
 		for(f=c->frame; f; f=f->cnext)
 			f->oldarea = -1;
 		if((f = c->sel))
@@ -644,7 +644,7 @@ fullscreen(Client *c, int fullscreen) {
 }
 
 void
-client_seturgent(Client *c, bool urgent, int from) {
+client_seturgent(Client *c, int urgent, int from) {
 	XWMHints *wmh;
 	char *cfrom, *cnot;
 	Frame *f, *ff;
