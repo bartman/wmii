@@ -505,7 +505,7 @@ view_scale(View *v, int width) {
 	float scale;
 	int dx, minx;
 
-	s = v->screen;
+	s = v->screen ?: selscreen;
 
 	minwidth = column_minwidth();
 	minx = s->r.min.x + s->pad.min.x;
