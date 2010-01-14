@@ -17,7 +17,7 @@ TERMINAL = xterm
 
 # Flags
 include $(ROOT)/mk/gcc.mk
-CFLAGS += $(DEBUGCFLAGS) -O0
+CFLAGS += $(DEBUGCFLAGS) -O0 -ggdb
 LDFLAGS += -g
 SOLDFLAGS += $(LDFLAGS)
 SHARED = -shared -Wl,-soname=$(SONAME)
