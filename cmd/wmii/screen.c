@@ -274,8 +274,9 @@ screen_change(WMScreen *s, int select_area)
 			a = v->areas;
 			break;
 		case LastArea:
-			if (v->areas)
-				a = v->areas->prev;
+			a = v->areas;
+			while (a && a->next)
+				a = a->next;
 			break;
 		default:
 			a = v->sel;
