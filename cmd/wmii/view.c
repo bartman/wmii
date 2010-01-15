@@ -462,7 +462,7 @@ view_restack(View *v) {
 	Frame *f;
 	Area *a;
 	
-	if(view_isvisible(v))
+	if(!view_isvisible(v))
 		return;
 
 	wins.n = 0;
