@@ -1016,15 +1016,16 @@ static bool wrapping_screens(Area *a, int sym)
 	WMScreen *scrn = selscreen;
 	int area_select;
 
-	if (sym == LLEFT && a == a->view->areas) {
+	if (sym == LLEFT && (a->floating || a == a->view->areas)) {
 		int si = (scrn->idx + nscreens - 1) % nscreens;
 		scrn = screens[si];
 		area_select = LastArea;
 
-	} else if (sym == LRIGHT && !a->next) {
+	} else if (sym == LRIGHT && (a->floating || !a->next)) {
 		int si = (scrn->idx + 1) % nscreens;
 		scrn = screens[si];
 		area_select = FirstArea;
+
 	} else
 		return false;
 
