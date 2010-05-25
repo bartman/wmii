@@ -36,7 +36,6 @@ OBJ =	area	\
 	rule	\
 	printevent\
 	screen	\
-	utf	\
 	_util	\
 	view	\
 	xdnd	\
