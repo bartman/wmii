@@ -193,8 +193,16 @@ wi_selclient() {
 wi_eventloop() {
 	echo "$Keys" | wmiir write /keys
 
-	wmiir read /event | while read wi_event
-	do
+ 	if [ "$1" = -i ]
+ 	then cat
+ 	else wmiir read /event
+	fi | awk '/./ { print; fflush() } END { print "" }' |
+	while :; do
+		# Work around a dash bug.
+		# Only quit on successful read of a blank line.
+		read wi_event || continue
+		test -n "$wi_event" || break
+
 		IFS="$wi_newline"
 		wi_arg=$(echo "$wi_event" | sed 's/^[^ ]* //')
 		unset IFS
