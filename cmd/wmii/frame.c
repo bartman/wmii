@@ -268,9 +268,8 @@ frame_gethints(Frame *f) {
 	c = f->client;
 	h = *c->w.hints;
 
-	r = frame_rect2client(c, f->r, f->area->floating);
-	d.x = Dx(f->r) - Dx(r);
-	d.y = Dy(f->r) - Dy(r);
+	r = frame_client2rect(c, ZR, f->area->floating);
+	d = subpt(r.max, r.min);
 
 	if(!f->area->floating && def.incmode == IIgnore)
 		h.inc = Pt(1, 1);
@@ -619,7 +618,7 @@ frame_focus(Frame *f) {
 	if(old_a != v->oldsel && f != old_f)
 		v->oldsel = nil;
 
-	if(v != selview || a != v->sel)
+	if(v != selview || a != v->sel || resizing)
 		return;
 
 	move_focus(old_f, f);
