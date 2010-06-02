@@ -22,7 +22,7 @@ include $(ROOT)/mk/dir.mk
 
 OWMIIR=wmiir.o $(OFILES) $(LIBIXP)
 wmiir.out: $(OWMIIR)
-	$(LINK) $@ $(STATIC) $(OWMIIR)
+	$(LINK) $@ $(OWMIIR)
 
 wmii/x11.o wmii/xext.o wmii/geom.o wmii/map.o: dall
 	true
