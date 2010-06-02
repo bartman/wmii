@@ -140,7 +140,7 @@ div_update_all(void) {
 	dp = &divs;
 	ap = nil;
 	foreach_column(v, s, a) {
-		if(ap && ap->screen != s)
+		if (ap && ap->screen != s)
 			ap = nil;
 
 		d = getdiv(&dp);
@@ -163,26 +163,24 @@ div_update_all(void) {
 }
 
 /* Div Handlers */
-static bool
-bdown_event(Window *w, void *aux, XButtonEvent *e) {
+static void
+bdown_event(Window *w, XButtonEvent *e) {
 	Divide *d;
 
 	USED(e);
-
-	d = aux;
+	
+	d = w->aux;
 	mouse_resizecol(d);
-	return false;
 }
 
-static bool
-expose_event(Window *w, void *aux, XExposeEvent *e) {
+static void
+expose_event(Window *w, XExposeEvent *e) {
 	Divide *d;
-
+	
 	USED(e);
-
-	d = aux;
+	
+	d = w->aux;
 	drawdiv(d);
-	return false;
 }
 
 static Handlers handlers = {

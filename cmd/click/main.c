@@ -1,4 +1,4 @@
-/* Copyright ©2006-2010 Kris Maglione <maglione.k at Gmail>
+/* Copyright ©2006-2010 Kris Maglione <fbsdaemon@gmail.com>
  * See LICENSE file for license details.
  */
 #define EXTERN
@@ -9,7 +9,7 @@
 #include <string.h>
 #include "fns.h"
 
-static const char version[] = "click-"VERSION", "COPYRIGHT"\n";
+static const char version[] = "click-"VERSION", ©2010 Kris Maglione\n";
 
 static void
 usage(void) {
@@ -46,10 +46,10 @@ main(int argc, char *argv[]) {
 	initdisplay();
 
 	s = ARGF();
-	if(s && !getulong(s, &win.xid))
+	if(s && !getulong(s, &win.w))
 		usage();
 	if (!s)
-		win.xid = getfocus();
+		win.w = getfocus();
 
 	if(argc)
 		usage();

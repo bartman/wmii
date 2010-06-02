@@ -1,6 +1,6 @@
 DEBUGCFLAGS = \
 	-g \
-	-O0 \
+	-O1 \
 	-fno-builtin \
 	-fno-inline \
 	-fno-omit-frame-pointer \

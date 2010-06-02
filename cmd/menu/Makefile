@@ -12,17 +12,25 @@ bindings.c: keys.txt Makefile
 TARG =	wimenu
 HFILES=	dat.h fns.h
 
-PACKAGES += $(X11PACKAGES)
+PACKAGES += $(X11PACKAGES) xext xrandr xrender xinerama
 
-LIB = $(LIBS9) $(LIBIXP)
-LIBS += -lm
+LIB =	$(LIBIXP)
+LIBS += -lm $(LIBS9)
 CFLAGS += -DIXP_NEEDAPI=86
 OBJ =	main	\
 	caret	\
 	history	\
+	event	\
 	menu	\
 	keys	\
-	bindings
+	bindings \
+	../wmii/geom	\
+	../wmii/map	\
+	../wmii/printevent	\
+	../wmii/x11	\
+	../wmii/xext	\
+	../clientutil	\
+	../util
 
 include $(ROOT)/mk/one.mk
 

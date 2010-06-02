@@ -1,7 +1,7 @@
 syntax: regexp
 (^|/)\.((.*\.)?sw.|depend|hgignore)$
-(^|/)(tags|mkfile|diff)$
-\.([oa]|out|o_pic|so|pyc|pyo|diff)$
+(^|/)(tags|mkfile)$
+\.([oa]|out|o_pic|so|pyc|pyo)$
 \.(diff|orig|rej|bak)$
 \.(aux|idx|ilg|ind|log|toc)$
 ^cmd/(stfo|osd|wiwarp|setfocus)(/|$)
@@ -11,4 +11,3 @@ _dummy\.h$
 syntax: glob
 config.local.mk
 cmd/menu/bindings.c
-*.pkg.tar.?z

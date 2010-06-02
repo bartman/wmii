@@ -22,14 +22,13 @@ FILTER = cat
 
 EXCFLAGS = $(INCLUDES) -D_XOPEN_SOURCE=600
 
-COMPILE_FLAGS = $(EXCFLAGS) $(CFLAGS) $$(pkg-config --cflags $(PACKAGES))
-COMPILE    = $(SHELL) $(ROOT)/util/compile "$(CC)" "$(COMPILE_FLAGS)"
-COMPILEPIC = $(SHELL) $(ROOT)/util/compile "$(CC)" "$(COMPILE_FLAGS) $(SOCFLAGS)"
+COMPILE    = $(ROOT)/util/compile "$(CC)" "$(EXCFLAGS) $(CFLAGS) $$(pkg-config --cflags $(PACKAGES))"
+COMPILEPIC = $(ROOT)/util/compile "$(CC)" "$(EXCFLAGS) $(CFLAGS) $$(pkg-config --cflags $(PACKAGES)) $(SOCFLAGS)"
 
-LINK   = $(SHELL) $(ROOT)/util/link "$(LD)" "$$(pkg-config --libs $(PACKAGES)) $(LDFLAGS) $(LIBS)"
-LINKSO = $(SHELL) $(ROOT)/util/link "$(LD)" "$$(pkg-config --libs $(PACKAGES)) $(SOLDFLAGS) $(LIBS) $(SHARED)"
+LINK   = $(ROOT)/util/link "$(LD)" "$$(pkg-config --libs $(PACKAGES)) $(LDFLAGS) $(LIBS)"
+LINKSO = $(ROOT)/util/link "$(LD)" "$$(pkg-config --libs $(PACKAGES)) $(SOLDFLAGS) $(LIBS) $(SHARED)"
 
-CLEANNAME=$(SHELL) $(ROOT)/util/cleanname
+CLEANNAME=$(ROOT)/util/cleanname
 
 SOEXT=so
 TAGFILES=
@@ -62,8 +61,8 @@ all:
 MAKEFILES=.depend
 .c.depend:
 	echo MKDEP $<
-	[ -n "$(noisycc)" ] && echo $(MKDEP) $(COMPILE_FLAGS) $< || true
-	eval "$(MKDEP) $(COMPILE_FLAGS)" $< >>.depend
+	[ -n "${noisycc}" ] && echo $(MKDEP) $(EXCFLAGS) $(CFLAGS) $$(pkg-config --cflags $(PACKAGES)) $< || true
+	$(MKDEP) $(EXCFLAGS) $(CFLAGS) $$(pkg-config --cflags $(PACKAGES)) $< >>.depend
 
 .sh.depend .rc.depend .1.depend .awk.depend:
 	:
@@ -76,20 +75,20 @@ MAKEFILES=.depend
 .o.out:
 	$(LINK) $@ $<
 .c.out:
-	$(COMPILE) $(<:.c=.o) $<
-	$(LINK) $@ $(<:.c=.o)
+	$(COMPILE) ${<:.c=.o} $<
+	$(LINK) $@ ${<:.c=.o}
 
 .rc.out .awk.out .sh.out:
 	echo FILTER $(BASE)$<
-	[ -n "$(<:%.sh=)" ] || $(BINSH) -n $<
+	[ -n "${<:%.sh=}" ] || sh -n $<
 	set -e; \
-	[ -n "$(noisycc)" ] && set -x; \
+	[ -n "${noisycc}" ] && set -x; \
 	$(FILTER) $< >$@; \
 	chmod 0755 $@
 
 .man1.1:
 	echo TXT2TAGS $(BASE)$<
-	[ -n "$(noisycc)" ] && set -x; \
+	[ -n "${noisycc}" ] && set -x; \
 	txt2tags -o- $< >$@
 
 INSTALL= _install() { set -e; \
@@ -134,9 +133,9 @@ UNINSTALL= _uninstall() { set -e; \
 INSTALMAN=   _installman()   { man=$${1\#\#*.}; $(INSTALL) 0644 $$1 $(MAN)/man$$man $$1; }; _installman
 UNINSTALLMAN=_uninstallman() { man=$${1\#\#*.}; $(UNINSTALL) $$1 $(MAN)/man$$man $$1; }; _uninstallman
 MANSECTIONS=1 2 3 4 5 6 7 8 9
-$(MANSECTIONS:%=.%.install):
+${MANSECTIONS:%=.%.install}:
 	$(INSTALMAN) $<
-$(MANSECTIONS:%=.%.uninstall):
+${MANSECTIONS:%=.%.uninstall}:
 	$(UNINSTALL) $<
 
 .out.clean:

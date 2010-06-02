@@ -23,12 +23,14 @@ bar_init(WMScreen *s) {
 	s->brect.min.y = s->brect.max.y - labelh(def.font);
 
 	wa.override_redirect = 1;
+	wa.background_pixmap = ParentRelative;
 	wa.event_mask = ExposureMask
 		      | ButtonPressMask
 		      | ButtonReleaseMask
 		      | FocusChangeMask;
 	s->barwin = createwindow(&scr.root, s->brect, scr.depth, InputOutput,
 			&wa, CWOverrideRedirect
+			   | CWBackPixmap
 			   | CWEventMask);
 	s->barwin->aux = s;
 	xdnd_initwindow(s->barwin);
@@ -93,10 +95,10 @@ bar_create(Bar **bp, const char *name) {
 	utflcpy(b->name, name, sizeof b->name);
 	b->col = def.normcolor;
 
-	strlcat(b->buf, b->col.colstr, sizeof b->buf);
-	strlcat(b->buf, " ", sizeof b->buf);
-	strlcat(b->buf, b->text, sizeof b->buf);
-
+	strlcat(b->buf, b->col.colstr, sizeof(b->buf));
+	strlcat(b->buf, " ", sizeof(b->buf));
+	strlcat(b->buf, b->text, sizeof(b->buf));
+	
 	SET(i);
 	for(sp=screens; (s = *sp); sp++) {
 		i = bp - s->bar;
@@ -201,11 +203,7 @@ bar_load(Bar *b) {
 
 	 p = b->buf;
 	 m = ixp_message(p, strlen(p), 0);
-
-	 if(!waserror()) { /* Ignore errors. */
-		 msg_parsecolors(&m, &b->col);
-		 poperror();
-	 }
+	 msg_parsecolors(&m, &b->col);
 
 	 q = (char*)m.end-1;
 	 while(q >= (char*)m.pos && *q == '\n')
@@ -242,13 +240,13 @@ findbar(WMScreen *s, Point p) {
 	Bar *b;
 
 	foreach_bar(s, b)
-		if(rect_haspoint_p(b->r, p))
+		if(rect_haspoint_p(p, b->r))
 			return b;
 	return nil;
 }
 
-static bool
-bdown_event(Window *w, void *aux, XButtonPressedEvent *e) {
+static void
+bdown_event(Window *w, XButtonPressedEvent *e) {
 	WMScreen *s;
 	Bar *b;
 
@@ -256,31 +254,29 @@ bdown_event(Window *w, void *aux, XButtonPressedEvent *e) {
 	XUngrabPointer(display, e->time);
 	sync();
 
-	s = aux;
+	s = w->aux;
 	b = findbar(s, Pt(e->x, e->y));
 	if(b)
 		event("%sBarMouseDown %d %s\n", barside[b->bar], e->button, b->name);
-	return false;
 }
 
-static bool
-bup_event(Window *w, void *aux, XButtonPressedEvent *e) {
+static void
+bup_event(Window *w, XButtonPressedEvent *e) {
 	WMScreen *s;
 	Bar *b;
-
-	s = aux;
+	
+	s = w->aux;
 	b = findbar(s, Pt(e->x, e->y));
 	if(b)
 		event("%sBarClick %d %s\n", barside[b->bar], e->button, b->name);
-	return false;
 }
 
 static Rectangle
-dndmotion_event(Window *w, void *aux, Point p) {
+dndmotion_event(Window *w, Point p) {
 	WMScreen *s;
 	Bar *b;
 
-	s = aux;
+	s = w->aux;
 	b = findbar(s, p);
 	if(b) {
 		event("%sBarDND 1 %s\n", barside[b->bar], b->name);
@@ -289,11 +285,10 @@ dndmotion_event(Window *w, void *aux, Point p) {
 	return ZR;
 }
 
-static bool
-expose_event(Window *w, void *aux, XExposeEvent *e) {
+static void
+expose_event(Window *w, XExposeEvent *e) {
 	USED(w, e);
-	bar_draw(aux);
-	return false;
+	bar_draw(w->aux);
 }
 
 static Handlers handlers = {

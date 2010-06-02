@@ -12,6 +12,7 @@
 #include <pwd.h>
 #include <sys/signal.h>
 #include <sys/stat.h>
+#include <unistd.h>
 #include "fns.h"
 
 static const char
@@ -42,22 +43,24 @@ scan_wins(void) {
 	uint num;
 	XWindow *wins;
 	XWindowAttributes wa;
-	XWindow root, parent;
+	XWindow d1, d2;
 
-	if(XQueryTree(display, scr.root.xid, &root, &parent, &wins, &num)) {
+	if(XQueryTree(display, scr.root.xid, &d1, &d2, &wins, &num)) {
 		for(i = 0; i < num; i++) {
-			if(!XGetWindowAttributes(display, wins[i], &wa) || wa.override_redirect)
+			if(!XGetWindowAttributes(display, wins[i], &wa))
 				continue;
-			if(!XGetTransientForHint(display, wins[i], &parent))
+			/* Skip transients. */
+			if(wa.override_redirect || XGetTransientForHint(display, wins[i], &d1))
+				continue;
 			if(wa.map_state == IsViewable)
 				client_create(wins[i], &wa);
 		}
 		/* Manage transients. */
 		for(i = 0; i < num; i++) {
-			if(!XGetWindowAttributes(display, wins[i], &wa) || wa.override_redirect)
+			if(!XGetWindowAttributes(display, wins[i], &wa))
 				continue;
-			if(XGetTransientForHint(display, wins[i], &parent))
-			if(wa.map_state == IsViewable)
+			if((XGetTransientForHint(display, wins[i], &d1))
+			&& (wa.map_state == IsViewable))
 				client_create(wins[i], &wa);
 		}
 	}
@@ -317,6 +320,13 @@ spawn_command(const char *cmd) {
 }
 
 static void
+check_preselect(IxpServer *s) {
+	USED(s);
+
+	check_x_event(nil);
+}
+
+static void
 closedisplay(IxpConn *c) {
 	USED(c);
 
@@ -381,7 +391,6 @@ extern int fmtevent(Fmt*);
 
 	passwd = getpwuid(getuid());
 	user = estrdup(passwd->pw_name);
-	gethostname(hostname, sizeof(hostname) - 1);
 
 	init_environment();
 
@@ -403,11 +412,9 @@ extern int fmtevent(Fmt*);
 	ewmh_init();
 	xext_init();
 
-	event_debug = debug_event;
-
-	srv.preselect = event_preselect;
+	srv.preselect = check_preselect;
 	ixp_listen(&srv, sock, &p9srv, serve_9pcon, nil);
-	ixp_listen(&srv, ConnectionNumber(display), nil, event_fdready, closedisplay);
+	ixp_listen(&srv, ConnectionNumber(display), nil, check_x_event, closedisplay);
 
 	def.border = 1;
 	def.colmode = Colstack;

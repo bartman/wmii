@@ -5,6 +5,7 @@
 #include <ctype.h>
 #include <stdarg.h>
 #include <time.h>
+#include <unistd.h>
 #include "fns.h"
 
 typedef union IxpFileIdU IxpFileIdU;
@@ -43,7 +44,6 @@ enum {	/* Dirs */
 	FsFEvent,
 	FsFKeys,
 	FsFRctl,
-	FsFRules,
 	FsFTagRules,
 	FsFTctl,
 	FsFTindex,
@@ -90,7 +90,6 @@ dirtab_root[]=	 {{".",		QTDIR,		FsRoot,		0500|DMDIR },
 		  {"colrules",	QTFILE,		FsFColRules,	0600 },
 		  {"event",	QTFILE,		FsFEvent,	0600 },
 		  {"keys",	QTFILE,		FsFKeys,	0600 },
-		  {"rules",	QTFILE,		FsFRules,	0600 },
 		  {"tagrules",	QTFILE,		FsFTagRules,	0600 },
 		  {nil}},
 dirtab_clients[]={{".",		QTDIR,		FsDClients,	0500|DMDIR },
@@ -213,7 +212,7 @@ dostat(Stat *s, IxpFileId *f) {
 	s->muid = user;
 }
 
-/*
+/* 
  * All lookups and directory organization should be performed through
  * lookup_file, mostly through the dirtab[] tree.
  */
@@ -264,7 +263,7 @@ lookup_file(IxpFileId *parent, char *name)
 				}
 				for(c=client; c; c=c->next) {
 					if(!name || c->w.xid == id) {
-						push_file(sxprint("%#C", c));
+						push_file(sxprint("%C", c));
 						file->volatil = true;
 						file->p.client = c;
 						file->id = c->w.xid;
@@ -337,9 +336,6 @@ lookup_file(IxpFileId *parent, char *name)
 			case FsFColRules:
 				file->p.rule = &def.colrules;
 				break;
-			case FsFRules:
-				file->p.rule = &def.rules;
-				break;
 			case FsFTagRules:
 				file->p.rule = &def.tagrules;
 				break;
@@ -383,7 +379,6 @@ fs_size(IxpFileId *f) {
 	default:
 		return 0;
 	case FsFColRules:
-	case FsFRules:
 	case FsFTagRules:
 		return f->p.rule->size;
 	case FsFKeys:
@@ -404,7 +399,7 @@ fs_stat(Ixp9Req *r) {
 	int size;
 	char *buf;
 	IxpFileId *f;
-
+	
 	f = r->fid->aux;
 
 	if(!ixp_srv_verifyfile(f, lookup_file)) {
@@ -452,7 +447,6 @@ fs_read(Ixp9Req *r) {
 			respond(r, nil);
 			return;
 		case FsFColRules:
-		case FsFRules:
 		case FsFTagRules:
 			ixp_srv_readbuf(r, f->p.rule->string, f->p.rule->size);
 			respond(r, nil);
@@ -519,38 +513,32 @@ fs_write(Ixp9Req *r) {
 		return;
 	}
 
-	if(waserror()) {
-		respond(r, ixp_errbuf());
-		return;
-	}
-
 	switch(f->tab.type) {
 	case FsFColRules:
-	case FsFRules:
 	case FsFTagRules:
 		ixp_srv_writebuf(r, &f->p.rule->string, &f->p.rule->size, 0);
 		respond(r, nil);
-		break;
+		return;
 	case FsFKeys:
 		ixp_srv_writebuf(r, &def.keys, &def.keyssz, 0);
 		respond(r, nil);
-		break;
+		return;
 	case FsFClabel:
 		ixp_srv_data2cstring(r);
 		utfecpy(f->p.client->name,
-			f->p.client->name + sizeof client->name,
+			f->p.client->name+sizeof(client->name),
 			r->ifcall.io.data);
 		frame_draw(f->p.client->sel);
 		update_class(f->p.client);
 		r->ofcall.io.count = r->ifcall.io.count;
 		respond(r, nil);
-		break;
+		return;
 	case FsFCtags:
 		ixp_srv_data2cstring(r);
 		client_applytags(f->p.client, r->ifcall.io.data);
 		r->ofcall.io.count = r->ifcall.io.count;
 		respond(r, nil);
-		break;
+		return;
 	case FsFBar:
 		i = strlen(f->p.bar->buf);
 		p = f->p.bar->buf;
@@ -558,7 +546,7 @@ fs_write(Ixp9Req *r) {
 		bar_load(f->p.bar);
 		r->ofcall.io.count = i - r->ifcall.io.offset;
 		respond(r, nil);
-		break;
+		return;
 	case FsFCctl:
 		mf = (MsgFunc)message_client;
 		goto msg;
@@ -572,7 +560,7 @@ fs_write(Ixp9Req *r) {
 		errstr = ixp_srv_writectl(r, mf);
 		r->ofcall.io.count = r->ifcall.io.count;
 		respond(r, errstr);
-		break;
+		return;
 	case FsFEvent:
 		if(r->ifcall.io.data[r->ifcall.io.count-1] == '\n')
 			event("%.*s", (int)r->ifcall.io.count, r->ifcall.io.data);
@@ -580,19 +568,17 @@ fs_write(Ixp9Req *r) {
 			event("%.*s\n", (int)r->ifcall.io.count, r->ifcall.io.data);
 		r->ofcall.io.count = r->ifcall.io.count;
 		respond(r, nil);
-		break;
-	default:
-		/* This should not be called if the file is not open for writing. */
-		die("Write called on an unwritable file");
+		return;
 	}
-	poperror();
-	return;
+	/*
+	/* This should not be called if the file is not open for writing. */
+	die("Write called on an unwritable file");
 }
 
 void
 fs_open(Ixp9Req *r) {
 	IxpFileId *f;
-
+	
 	f = r->fid->aux;
 
 	if(!ixp_srv_verifyfile(f, lookup_file)) {
@@ -622,7 +608,7 @@ fs_open(Ixp9Req *r) {
 void
 fs_create(Ixp9Req *r) {
 	IxpFileId *f;
-
+	
 	f = r->fid->aux;
 
 	switch(f->tab.type) {
@@ -653,7 +639,7 @@ void
 fs_remove(Ixp9Req *r) {
 	IxpFileId *f;
 	WMScreen *s;
-
+	
 	f = r->fid->aux;
 	if(!ixp_srv_verifyfile(f, lookup_file)) {
 		respond(r, Enofile);
@@ -677,7 +663,7 @@ fs_remove(Ixp9Req *r) {
 void
 fs_clunk(Ixp9Req *r) {
 	IxpFileId *f;
-
+	
 	f = r->fid->aux;
 	if(!ixp_srv_verifyfile(f, lookup_file)) {
 		respond(r, nil);
@@ -695,18 +681,16 @@ fs_clunk(Ixp9Req *r) {
 
 	switch(f->tab.type) {
 	case FsFColRules:
-	case FsFRules:
-	case FsFTagRules:
 		update_rules(&f->p.rule->rule, f->p.rule->string);
 		break;
-		/*
 	case FsFTagRules:
 		update_rules(&f->p.rule->rule, f->p.rule->string);
+		/*
 		for(c=client; c; c=c->next)
 			apply_rules(c);
 		view_update_all();
-		break;
 		*/
+		break;
 	case FsFKeys:
 		update_keys();
 		break;

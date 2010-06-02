@@ -2,7 +2,8 @@ MKSUBDIR = \
 	set -e;							\
 	targ=$@; targ=$${targ\#d};				\
 	for i in $$dirs; do					\
-		export $(SUBMAKE_EXPORT) BASE=$(BASE)$$i/;	\
+		export $(SUBMAKE_EXPORT);			\
+		export BASE=$(BASE)$$i/;			\
 		if [ ! -d $$i ]; then				\
 			echo Skipping nonexistent directory: $$i 1>&2;	\
 		else						\

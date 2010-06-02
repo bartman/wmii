@@ -27,13 +27,13 @@ void
 menu_init(void) {
 	WinAttr wa;
 
+	wa.override_redirect = 1;
+	wa.background_pixmap = ParentRelative;
 	wa.event_mask = ExposureMask | KeyPressMask;
 	barwin = createwindow(&scr.root, Rect(-1, -1, 1, 1), scr.depth, InputOutput,
-			&wa, CWEventMask);
-
-	changeprop_long(barwin, Net("WM_WINDOW_TYPE"), "ATOM",
-			(long[]){ TYPE("MENU") }, 1);
-
+			&wa, CWOverrideRedirect
+			   | CWBackPixmap
+			   | CWEventMask);
 	sethandler(barwin, &handlers);
 	mapwin(barwin);
 
@@ -254,8 +254,8 @@ menu_show(void) {
 	menu_draw();
 }
 
-static bool
-kdown_event(Window *w, void *aux, XKeyEvent *e) {
+static void
+kdown_event(Window *w, XKeyEvent *e) {
 	char **action, **p;
 	char *key;
 	char buf[32];
@@ -276,7 +276,7 @@ kdown_event(Window *w, void *aux, XKeyEvent *e) {
 	|| IsKeypadKey(ksym)
 	|| IsPrivateKeypadKey(ksym)
 	|| IsPFKey(ksym))
-		return false;
+		return;
 
 	action = find_key(key, e->state);
 	if(action == nil || action[0] == nil) {
@@ -328,15 +328,13 @@ kdown_event(Window *w, void *aux, XKeyEvent *e) {
 			break;
 		}
 	}
-	return false;
 }
 
-static bool
-expose_event(Window *w, void *aux, XExposeEvent *e) {
+static void
+expose_event(Window *w, XExposeEvent *e) {
 
 	USED(w);
 	menu_draw();
-	return false;
 }
 
 static Handlers handlers = {

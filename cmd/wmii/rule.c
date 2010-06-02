@@ -22,104 +22,86 @@ trim(char *str, const char *chars) {
 	*q = '\0';
 }
 
+/* XXX: I hate this. --KM */
 void
-update_rules(Rule **rule, char *data) {
-#define putc(m, c) BLOCK(if((m)->pos < (m)->end) *(m)->pos++ = c;)
-#define getc(m) ((m)->pos < (m)->end ? *(m)->pos++ : 0)
-#define ungetc(m) BLOCK(if((m)->pos > (m)->data) --(m)->pos)
-
-	IxpMsg buf, valuebuf, rebuf;
-	Reprog *re;
-	Rule *r;
-	Ruleval **rvp;
-	Ruleval *rv;
-	char *w;
-	char regexp[256];
+update_rules(Rule **rule, const char *data) {
+	/* basic rule matching language /regex/ -> value
+	 * regex might contain POSIX regex syntax defined in regex(3) */
+	enum {
+		IGNORE,
+		REGEX,
+		VALUE,
+		COMMENT,
+	};
+	int state;
+	Rule *rul;
+	char regex[256], value[256];
+	char *regex_end = regex + sizeof(regex) - 1;
+	char *value_end = value + sizeof(value) - 1;
+	char *r, *v;
+	const char *p;
 	char c;
-	int len;
+	
+	SET(r);
+	SET(v);
 
-	while((r = *rule)) {
-		*rule = r->next;
-		while((rv = r->values)) {
-			r->values = rv->next;
-			free(rv);
-		}
-		free(r->regex);
-		free(r->value);
-		free(r);
-	}
-
-	if(!data || !data[0])
+	if(!data || !strlen(data))
 		return;
-
-	buf = ixp_message(data, strlen(data), MsgUnpack);
-
-begin:
-	msg_eatrunes(&buf, isspacerune, true);
-	if(getc(&buf) == '/')
-		goto regexp;
-	/* Regexp not at begining of the line. Rest of the line is junk. */
-	while((c = getc(&buf)))
-		if(c == '\n')
-			goto begin;
-	goto done;
-
-regexp:
-	rebuf = ixp_message(regexp, sizeof regexp - 1, MsgPack);
-	while((c = getc(&buf)))
-		if(c == '/')
-			goto value;
-		else if(c != '\\')
-			putc(&rebuf, c);
-		else if(buf.pos[1] == '/' || buf.pos[1] == '\\' && buf.pos[2] == '/')
-			putc(&rebuf, getc(&buf));
-		else {
-			putc(&rebuf, c);
-			putc(&rebuf, getc(&buf));
-		}
-	goto done;
-
-value:
-	valuebuf = ixp_message(buffer, sizeof buffer - 1, MsgPack);
-	while((c = getc(&buf))) {
-		if(c == '\n') {
-			putc(&valuebuf, ' ');
-			msg_eatrunes(&buf, isspacerune, true);
-			if((c = getc(&buf)) == '/') {
-				ungetc(&buf);
+	while((rul = *rule)) {
+		*rule = rul->next;
+		free(rul->regex);
+		free(rul);
+	}
+	state = IGNORE;
+	for(p = data; (c = *p); p++)
+		switch(state) {
+		case COMMENT:
+			if(c == '\n')
+				state = IGNORE;
+			break;
+		case IGNORE:
+			if(c == '#')
+				state = COMMENT;
+			else if(c == '/') {
+				r = regex;
+				state = REGEX;
+			}
+			else if(c == '>') {
+				value[0] = 0;
+				v = value;
+				state = VALUE;
+			}
+			break;
+		case REGEX:
+			if(c == '\\' && p[1] == '/')
+				p++;
+			else if(c == '/') {
+				*r = 0;
+				state = IGNORE;
 				break;
 			}
+			if(r < regex_end)
+				*r++ = c;
+			break;
+		case VALUE:
+			if(c == '\n' || c == '#' || c == 0) {
+				*v = 0;
+				trim(value, " \t");
+				*rule = emallocz(sizeof **rule);
+				(*rule)->regex = regcomp(regex);
+				if((*rule)->regex) {
+					utflcpy((*rule)->value, value, sizeof rul->value);
+					rule = &(*rule)->next;
+				}else
+					free(*rule);
+				state = IGNORE;
+				if(c == '#')
+					state = COMMENT;
+			}
+			else if(v < value_end)
+				*v++ = c;
+			break;
+		default: /* can't happen */
+			die("invalid state");
 		}
-		putc(&valuebuf, c);
-	}
-
-	putc(&rebuf, '\0');
-	re = regcomp(regexp);
-	if(!re)
-		goto begin;
-	r = emallocz(sizeof *r);
-	*rule = r;
-	rule = &r->next;
-	r->regex = re;
-
-	valuebuf.end = valuebuf.pos;
-	valuebuf.pos = valuebuf.data;
-	rvp = &r->values;
-	while((w = msg_getword(&valuebuf))) {
-		free(r->value);
-		r->value = estrdup(w);
-		if(strchr(w, '=')) {
-			len = strlen(w) + 1;
-			*rvp = rv = emallocz(sizeof *rv + len);
-			rvp = &rv->next;
-
-			memcpy(&rv[1], w, len);
-			tokenize(&rv->key, 2, (char*)&rv[1], '=');
-		}
-	}
-	goto begin;
-
-done:
-	return;
 }
-

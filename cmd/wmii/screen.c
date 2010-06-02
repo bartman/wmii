@@ -3,6 +3,7 @@
  */
 #include "dat.h"
 #include <math.h>
+#include <stdlib.h>
 #include "fns.h"
 
 #ifdef notdef

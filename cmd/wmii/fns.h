@@ -2,8 +2,6 @@
  * See LICENSE file for license details.
  */
 
-#include <setjmp.h>
-
 #ifdef VARARGCK
 # pragma varargck	argpos	debug	2
 # pragma varargck	argpos	dprint	1
@@ -82,7 +80,7 @@ void	client_kill(Client*, bool);
 void	client_manage(Client*);
 void	client_map(Client*);
 void	client_message(Client*, char*, long);
-bool	client_prop(Client*, Atom);
+void	client_prop(Client*, Atom);
 void	client_reparent(Client*, Window*, Point);
 void	client_resize(Client*, Rectangle);
 void	client_setcursor(Client*, Cursor);
@@ -90,11 +88,10 @@ void	client_seturgent(Client*, int, int);
 void	client_setviews(Client*, char**);
 void	client_unmap(Client*, int state);
 Frame*	client_viewframe(Client *c, View *v);
-void	focus(Client*, bool user);
+char*	clientname(Client*);
+void	focus(Client*, bool restack);
 void	fullscreen(Client*, int, long);
-void	group_init(Client*);
 Client*	group_leader(Group*);
-void	group_remove(Client*);
 int	map_frame(Client*);
 Client*	selclient(void);
 int	unmap_frame(Client*);
@@ -125,25 +122,30 @@ int	stack_count(Frame*, int*);
 Frame*	stack_find(Area*, Frame*, int, bool);
 
 /* error.c */
-#define waserror() setjmp(*pusherror())
+#define waserror() setjmp(pusherror())
 void	error(char*, ...);
 void	nexterror(void);
 void	poperror(void);
 jmp_buf*	pusherror(void);
 
 /* event.c */
-void	debug_event(XEvent*);
+void	check_x_event(IxpConn*);
+void	dispatch_event(XEvent*);
+uint	flushenterevents(void);
+uint	flushevents(long, bool dispatch);
 void	print_focus(const char*, Client*, const char*);
+void	xtime_kludge(void);
 
 /* ewmh.c */
-void	ewmh_checkresponsive(Client*);
+int	ewmh_clientmessage(XClientMessageEvent*);
 void	ewmh_destroyclient(Client*);
 void	ewmh_framesize(Client*);
 void	ewmh_getstrut(Client*);
 void	ewmh_getwintype(Client*);
 void	ewmh_init(void);
 void	ewmh_initclient(Client*);
-bool	ewmh_prop(Client*, Atom);
+void	ewmh_pingclient(Client*);
+int	ewmh_prop(Client*, Atom);
 long	ewmh_protocols(Window*);
 void	ewmh_updateclient(Client*);
 void	ewmh_updateclientlist(void);
@@ -195,6 +197,15 @@ void	fs_walk(Ixp9Req*);
 void	fs_write(Ixp9Req*);
 void	event(const char*, ...);
 
+/* geom.c */
+Align	get_sticky(Rectangle src, Rectangle dst);
+Cursor	quad_cursor(Align);
+Align	quadrant(Rectangle, Point);
+bool	rect_contains_p(Rectangle, Rectangle);
+bool	rect_haspoint_p(Point, Rectangle);
+bool	rect_intersect_p(Rectangle, Rectangle);
+Rectangle	rect_intersection(Rectangle, Rectangle);
+
 /* key.c */
 void	init_lock_keys(void);
 void	kpress(XWindow, ulong mod, KeyCode);
@@ -204,14 +215,21 @@ void	update_keys(void);
 void	init_screens(void);
 void	spawn_command(const char*);
 
+/* map.c */
+void**	hash_get(Map*, const char*, bool create);
+void*	hash_rm(Map*, const char*);
+void**	map_get(Map*, ulong, bool create);
+void*	map_rm(Map*, ulong);
+
 /* message.c */
+bool	getlong(const char*, long*);
+bool	getulong(const char*, ulong*);
 char*	message_client(Client*, IxpMsg*);
 char*	message_root(void*, IxpMsg*);
 char*	message_view(View*, IxpMsg*);
 char*	msg_debug(IxpMsg*);
-void	msg_eatrunes(IxpMsg*, int (*)(Rune), int);
 char*	msg_getword(IxpMsg*);
-void	msg_parsecolors(IxpMsg*, CTuple*);
+char*	msg_parsecolors(IxpMsg*, CTuple*);
 char*	msg_selectarea(Area*, IxpMsg*);
 char*	msg_sendclient(View*, IxpMsg*, bool swap);
 char*	readctl_client(Client*);
@@ -219,7 +237,6 @@ char*	readctl_root(void);
 char*	readctl_view(View*);
 Area*	strarea(View*, ulong, const char*);
 void	warning(const char*, ...);
-
 /* debug */
 void	debug(int, const char*, ...);
 void	dprint(const char*, ...);
@@ -242,6 +259,9 @@ Align	snap_rect(const Rectangle *rects, int num, Rectangle *current, Align *mask
 /* print.c */
 int	Ffmt(Fmt*);
 
+/* printevent.c */
+void	printevent(XEvent*);
+
 /* root.c */
 void	root_init(void);
 
@@ -251,7 +271,7 @@ int	ownerscreen(Rectangle);
 
 /* rule.c */
 void	trim(char *str, const char *chars);
-void	update_rules(Rule**, char*);
+void	update_rules(Rule**, const char*);
 
 /* view.c */
 void	view_arrange(View*);
@@ -265,7 +285,7 @@ bool	view_fullscreen_p(View*, int);
 char*	view_index(View*);
 void	view_init(View*, int iscreen);
 char**	view_names(void);
-uint	view_newcolwidth(View*, int, int);
+uint	view_newcolwidth(View*, int i);
 void	view_restack(View*);
 void	view_scale(View*, int, int);
 Client*	view_selclient(View*);
@@ -275,10 +295,34 @@ void	view_update_all(void);
 void	view_update_rect(View*);
 Rectangle*	view_rects(View*, uint *num, Frame *ignore);
 
+/* _util.c */
+void	backtrace(char*);
+void	closeexec(int);
+char**	comm(int, char**, char**);
+int	doublefork(void);
+void	grep(char**, Reprog*, int);
+char*	join(char**, char*);
+char*	pathsearch(const char*, const char*, bool);
+void	refree(Regex*);
+void	reinit(Regex*, char*);
+int	strlcatprint(char*, int, const char*, ...);
+int	spawn3(int[3], const char*, char*[]);
+int	spawn3l(int[3], const char*, ...);
+void	uniq(char**);
+int	unquote(char*, char*[], int);
+
 /* utf.c */
 char*	toutf8(const char*);
 char*	toutf8n(const char*, size_t);
 
 /* xdnd.c */
+int	xdnd_clientmessage(XClientMessageEvent*);
 void	xdnd_initwindow(Window*);
+
+/* xext.c */
+void	randr_event(XEvent*);
+bool	render_argb_p(Visual*);
+void	xext_event(XEvent*);
+void	xext_init(void);
+Rectangle*	xinerama_screens(int*);
 

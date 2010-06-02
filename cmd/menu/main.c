@@ -1,4 +1,4 @@
-/* Copyright ©2006-2010 Kris Maglione <maglione.k at Gmail>
+/* Copyright ©2006-2010 Kris Maglione <fbsdaemon@gmail.com>
  * See LICENSE file for license details.
  */
 #define IXP_NO_P9_
@@ -10,7 +10,7 @@
 #include <strings.h>
 #include <unistd.h>
 #include <bio.h>
-#include <stuff/clientutil.h>
+#include <clientutil.h>
 #include "fns.h"
 #define link _link
 
@@ -19,7 +19,6 @@ static Biobuf*	cmplbuf;
 static Biobuf*	inbuf;
 static bool	alwaysprint;
 static char*	cmdsep;
-static int	screen_hint;
 
 static void
 usage(void) {
@@ -29,6 +28,27 @@ usage(void) {
 static int
 errfmt(Fmt *f) {
 	return fmtstrcpy(f, ixp_errbuf());
+}
+
+/* Stubs. */
+void
+debug(int flag, const char *fmt, ...) {
+	va_list ap;
+
+	USED(flag);
+	va_start(ap, fmt);
+	vfprint(2, fmt, ap);
+	va_end(ap);
+}
+
+void dprint(long, char*, ...);
+void dprint(long mask, char *fmt, ...) {
+	va_list ap;
+
+	USED(mask);
+	va_start(ap, fmt);
+	vfprint(2, fmt, ap);
+	va_end(ap);
 }
 
 static inline void
@@ -149,10 +169,28 @@ update_filter(bool print) {
 		update_input();
 }
 
+ErrorCode ignored_xerrors[] = {
+	{ 0, }
+};
+
+static void
+end(IxpConn *c) {
+
+	USED(c);
+	srv.running = 0;
+}
+
+static void
+preselect(IxpServer *s) {
+	
+	USED(s);
+	check_x_event(nil);
+}
+
 enum { PointerScreen = -1 };
 
 void
-init_screens(void) {
+init_screens(int screen_hint) {
 	Rectangle *rects;
 	Point p;
 	int i, n;
@@ -167,7 +205,7 @@ init_screens(void) {
 		 */
 		p = querypointer(&scr.root);
 		for(i=0; i < n; i++)
-			if(rect_haspoint_p(rects[i], p))
+			if(rect_haspoint_p(p, rects[i]))
 				break;
 		if(i == n)
 			i = 0;
@@ -185,10 +223,12 @@ main(int argc, char *argv[]) {
 	static bool nokeys;
 	int i;
 	long ndump;
+	int screen;
 
 	quotefmtinstall();
 	fmtinstall('r', errfmt);
-	screen_hint = PointerScreen;
+	address = getenv("WMII_ADDRESS");
+	screen = PointerScreen;
 
 	find = strstr;
 	compare = strncmp;
@@ -221,7 +261,7 @@ main(int argc, char *argv[]) {
 		prompt = EARGF(usage());
 		break;
 	case 's':
-		screen_hint = strtol(EARGF(usage()), nil, 10);
+		screen = strtol(EARGF(usage()), nil, 10);
 		break;
 	case 'S':
 		cmdsep = EARGF(usage());
@@ -246,11 +286,17 @@ main(int argc, char *argv[]) {
 
 	client_init(address);
 
-	srv.preselect = event_preselect;
-	ixp_listen(&srv, ConnectionNumber(display), nil, event_fdready, event_fdclosed);
+	srv.preselect = preselect;
+	ixp_listen(&srv, ConnectionNumber(display), nil, check_x_event, end);
 
 	ontop = !strcmp(readctl("bar on "), "top");
-	client_readconfig(&cnorm, &csel, &font);
+	loadcolor(&cnorm, readctl("normcolors "));
+	loadcolor(&csel, readctl("focuscolors "));
+	font = loadfont(readctl("font "));
+	sscanf(readctl("fontpad "), "%d %d %d %d", &font->pad.min.x, &font->pad.max.x,
+	       &font->pad.min.x, &font->pad.max.y);
+	if(!font)
+		fatal("Can't load font %q", readctl("font "));
 
 	cmplbuf = Bfdopen(0, OREAD);
 	items = populate_list(cmplbuf, false);
@@ -285,7 +331,7 @@ main(int argc, char *argv[]) {
 	if(barwin == nil)
 		menu_init();
 
-	init_screens();
+	init_screens(screen);
 
 	i = ixp_serverloop(&srv);
 	if(i)

@@ -17,8 +17,12 @@ TERMINAL = xterm
 
 # Flags
 include $(ROOT)/mk/gcc.mk
-CFLAGS += -Os $(DEBUGCFLAGS)
+CFLAGS += $(DEBUGCFLAGS) -O0
 LDFLAGS += -g
+
+SOLDFLAGS += $(LDFLAGS)
+SHARED = -shared -Wl,-soname=$(SONAME)
+STATIC = -static
 
 # Compiler, Linker. Linker should usually *not* be ld.
 CC = cc -c
@@ -26,17 +30,10 @@ LD = cc
 # Archiver
 AR = ar crs
 
-X11PACKAGES = x11 xinerama xrender xrandr
+X11PACKAGES = xft
 INCX11 = $$(pkg-config --cflags $(X11PACKAGES))
+LIBICONV = # Leave blank if your libc includes iconv (glibc does)
 LIBIXP = $(LIBDIR)/libixp.a
-
-# Enable RTLD. Only necessary for Xft support.
-CFLAGS += -DHAVE_RTLD
-LDFLAGS += -ldl # Comment this out on BSD systems.
-
-SOLDFLAGS += $(LDFLAGS)
-SHARED = -shared -Wl,-soname=$(SONAME)
-STATIC = -static
 
 # Your make shell. By default, the first found of /bin/dash, /bin/ksh,
 # /bin/sh. Except with bsdmake, which assumes /bin/sh is sane. bash and zsh
@@ -53,13 +50,14 @@ STATIC = -static
 #CC=pcc -c
 #LD=pcc
 
-# Darwin
+# *BSD
+#LIBICONV = -L/usr/local/lib -liconv
+# +Darwin
 #STATIC = # Darwin doesn't like static linking
 #SHARED = -dynamiclib
 #SOEXT = dylib
 
 # Solaris
-#SHELL = /bin/bash
 #CFLAGS = -fast $(INCS)
 #LDFLAGS = $(LIBS) -R$(PREFIX)/lib -lsocket -lnsl
 #CFLAGS += -xtarget=ultra

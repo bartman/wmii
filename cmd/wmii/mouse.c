@@ -13,27 +13,11 @@ enum {
 		ButtonMask | PointerMotionMask
 };
 
-static Cursor
-quad_cursor(Align align) {
-	switch(align) {
-	case NEast: return cursor[CurNECorner];
-	case NWest: return cursor[CurNWCorner];
-	case SEast: return cursor[CurSECorner];
-	case SWest: return cursor[CurSWCorner];
-	case South:
-	case North: return cursor[CurDVArrow];
-	case East:
-	case West:  return cursor[CurDHArrow];
-	default:    return cursor[CurMove];
-	}
-}
-
-static bool
-cwin_expose(Window *w, void *aux, XExposeEvent *e) {
+static void
+cwin_expose(Window *w, XExposeEvent *e) {
 
 	fill(w, rectsubpt(w->r, w->r.min), def.focuscolor.bg);
 	fill(w, w->r, def.focuscolor.bg);
-	return false;
 }
 
 static Handlers chandler = {
@@ -43,12 +27,13 @@ static Handlers chandler = {
 Window*
 constraintwin(Rectangle r) {
 	Window *w;
+	WinAttr wa;
 
-	w = createwindow(&scr.root, r, 0, InputOnly, nil, 0);
+	w = createwindow(&scr.root, r, 0, InputOnly, &wa, 0);
 	if(0) {
 		Window *w2;
 
-		w2 = createwindow(&scr.root, r, 0, InputOutput, nil, 0);
+		w2 = createwindow(&scr.root, r, 0, InputOutput, &wa, 0);
 		selectinput(w2, ExposureMask);
 		w->aux = w2;
 
@@ -77,7 +62,7 @@ static Window*
 gethsep(Rectangle r) {
 	Window *w;
 	WinAttr wa;
-
+	
 	wa.background_pixel = def.normcolor.border.pixel;
 	w = createwindow(&scr.root, r, scr.depth, InputOutput, &wa, CWBackPixel);
 	mapwin(w);
@@ -152,7 +137,7 @@ Align
 snap_rect(const Rectangle *rects, int num, Rectangle *r, Align *mask, int snap) {
 	Align ret;
 	Point d;
-
+	
 	d.x = snap+1;
 	d.y = snap+1;
 
@@ -191,7 +176,7 @@ readmouse(Point *p, uint *button) {
 		case Expose:
 		case NoExpose:
 		case PropertyNotify:
-			event_dispatch(&ev);
+			dispatch_event(&ev);
 		default:
 			Dprint(DEvent, "readmouse(): ignored: %E\n", &ev);
 			continue;
@@ -443,7 +428,7 @@ mouse_resize(Client *c, Align align, bool grabmod) {
 		warppointer(d);
 	}
 	sync();
-	event_flush(PointerMotionMask, false);
+	flushevents(PointerMotionMask, false);
 
 	while(readmotion(&d)) {
 		if(align == Center) {
@@ -603,14 +588,14 @@ mouse_checkresize(Frame *f, Point p, bool exec) {
 	int q;
 
 	cur = cursor[CurNormal];
-	if(rect_haspoint_p(f->crect, p)) {
+	if(rect_haspoint_p(p, f->crect)) {
 		client_setcursor(f->client, cur);
 		return;
 	}
 
 	r = rectsubpt(f->r, f->r.min);
 	q = quadrant(r, p);
-	if(rect_haspoint_p(f->grabbox, p)) {
+	if(rect_haspoint_p(p, f->grabbox)) {
 		cur = cursor[CurTCross];
 		if(exec)
 			mouse_movegrabbox(f->client, false);
@@ -624,7 +609,7 @@ mouse_checkresize(Frame *f, Point p, bool exec) {
 			if(exec)
 				mouse_resize(f->client, q, false);
 		}
-		else if(exec && rect_haspoint_p(f->titlebar, p))
+		else if(exec && rect_haspoint_p(p, f->titlebar))
 			mouse_movegrabbox(f->client, true);
 	}else {
 		if(f->aprev && p.y <= 2

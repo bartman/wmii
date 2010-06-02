@@ -9,13 +9,12 @@ HFILES=	dat.h fns.h
 
 PACKAGES += $(X11PACKAGES) xext xrandr xrender xinerama
 
-LIB = $(LIBIXP) $(LIBS9)
-LIBS += -lm
+LIB =	$(LIBIXP)
+LIBS += -lm $(LIBS9)
 
 CFLAGS += $(INCICONV) -DIXP_NEEDAPI=97
 OBJ =	area	\
 	bar	\
-	backtrace \
 	client	\
 	column	\
 	div	\
@@ -25,18 +24,24 @@ OBJ =	area	\
 	float	\
 	frame	\
 	fs	\
+	geom	\
 	key	\
 	layout	\
 	main	\
+	map	\
 	message	\
 	mouse	\
 	print   \
 	root	\
 	rule	\
+	printevent\
 	screen	\
-	utf	\
+	_util	\
 	view	\
-	xdnd
+	xdnd	\
+	x11	\
+	xext	\
+	../util
 
 include $(ROOT)/mk/one.mk
 

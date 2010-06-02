@@ -58,12 +58,8 @@ status() {
 	echo -n $(uptime | sed 's/.*://; s/,//g') '|' $(date)
 }
 
-# Generic overridable startup details
-startup() { witray & }
-
 local_events() { true;}
 wi_runconf -s wmiirc_local
-startup
 
 echo $WMII_NORMCOLORS | wmiir create $noticebar
 
@@ -93,7 +89,7 @@ Event Unresponsive
 		client=$1; shift
 		msg="The following client is not responding. What would you like to do?$wi_newline"
 		resp=$(wihack -transient $client \
-			      xmessage -nearmouse -buttons Kill,Wait -print \
+			      xmessage -nearmouse -buttons Kill,Wait -print
 			      -fn "${WMII_FONT%%,*}" "$msg $(wmiir read /client/sel/label)")
 		if [ "$resp" = Kill ]; then
 			wmiir xwrite /client/$client/ctl slay &

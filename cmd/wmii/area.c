@@ -85,16 +85,17 @@ area_create(View *v, Area *pos, int scrn, uint width) {
 	SET(index);
 	if(v->areas) { /* Creating a column. */
 		minwidth = column_minwidth();
-		index = pos ? area_idx(pos) : 0;
+		index = pos ? area_idx(pos) : 1;
 		numcols = 0;
 		for(a=v->areas[scrn]; a; a=a->next)
 			numcols++;
 
-		/* TODO: Need a better sizing/placing algorithm. */
+		/* TODO: Need a better sizing/placing algorithm.
+		 */
 		if(width == 0) {
 			if(numcols >= 0) {
-				width = view_newcolwidth(v, scrn, index);
-				if(width == 0)
+				width = view_newcolwidth(v, index);
+				if (width == 0)
 					width = Dx(v->r[scrn]) / (numcols + 1);
 			}
 			else
@@ -213,7 +214,7 @@ area_moveto(Area *to, Frame *f) {
 		return;
 
 	from = f->area;
-	if(from == to)
+	if (from == to)
 		return;
 
 	area_detach(f);
@@ -273,7 +274,6 @@ area_detach(Frame *f) {
 		column_detach(f);
 
 	if(v->sel->sel == nil && v->floating->sel)
-	if(v->floating->sel->client->nofocus)
 		v->sel = v->floating;
 
 	view_arrange(v);

@@ -1,5 +1,4 @@
 #!/bin/sh -f
-unset WMII_HACK_TRANSIENT WMII_HACK_TYPE WMII_HACK_TAGS
 
 usage() {
 	echo 1>&2 Usage: \

@@ -11,13 +11,11 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
-#include <limits.h>
-#include <utf.h>
 #include <ixp.h>
-#include <stuff/x.h>
-#include <stuff/util.h>
-#include "debug.h"
+#include <util.h>
+#include <utf.h>
+#include <fmt.h>
+#include <x11.h>
 
 #define FONT		"-*-fixed-medium-r-*-*-13-*-*-*-*-*-*-*"
 #define FOCUSCOLORS	"#ffffff #335577 #447799"
@@ -25,8 +23,12 @@
 
 enum {
 	PingTime = 10000,
-	PingPeriod = 2000,
-	PingPartition = 20,
+};
+
+enum {
+	CLeft = 1<<0,
+	CCenter = 1<<1,
+	CRight = 1<<2,
 };
 
 enum IncMode {
@@ -36,14 +38,12 @@ enum IncMode {
 };
 
 enum {
-	UrgManager,
-	UrgClient,
+	GInvert = 1<<0,
 };
 
 enum {
-	SourceUnknown,
-	SourceClient,
-	SourcePager
+	UrgManager,
+	UrgClient,
 };
 
 enum EWMHType {
@@ -63,14 +63,11 @@ enum {
 
 extern char*	modes[];
 
-#define toggle(val, x) \
-	((x) == On     ? true   : \
-	 (x) == Off    ? false  : \
-	 (x) == Toggle ? !(val) : (val))
 #define TOGGLE(x) \
-	((x) == On     ? "on"     : \
-	 (x) == Off    ? "off"    : \
-	 (x) == Toggle ? "toggle" : "<toggle>")
+	(x == On ? "on" : \
+	 x == Off ? "off" : \
+	 x == Toggle ? "toggle" : \
+	 "<toggle>")
 enum {
 	Off,
 	On,
@@ -83,6 +80,15 @@ enum Barpos {
 };
 
 enum {
+	CurNormal,
+	CurNECorner, CurNWCorner, CurSECorner, CurSWCorner,
+	CurDHArrow, CurDVArrow, CurMove, CurInput, CurSizing,
+	CurTCross, CurIcon,
+	CurNone,
+	CurLast,
+};
+
+enum {
 	NCOL = 16,
 };
 
@@ -92,16 +98,16 @@ enum Protocols {
 	ProtoPing	= 1<<2,
 };
 
-enum {
-	CurNormal,
-	CurNECorner, CurNWCorner, CurSECorner, CurSWCorner,
-	CurDHArrow, CurDVArrow, CurMove, CurInput, CurSizing,
-	CurTCross, CurIcon,
-	CurNone,
-	CurLast,
+enum DebugOpt {
+	D9p	= 1<<0,
+	DDnd	= 1<<1,
+	DEvent	= 1<<2,
+	DEwmh	= 1<<3,
+	DFocus	= 1<<4,
+	DGeneric= 1<<5,
+	DStack  = 1<<6,
+	NDebugOpt = 7,
 };
-Cursor	cursor[CurLast];
-
 
 /* Data Structures */
 typedef struct Area Area;
@@ -111,9 +117,11 @@ typedef struct Divide Divide;
 typedef struct Frame Frame;
 typedef struct Group Group;
 typedef struct Key Key;
+typedef struct Map Map;
+typedef struct MapEnt MapEnt;
+typedef struct Regex Regex;
 typedef struct Rule Rule;
 typedef struct Ruleset Ruleset;
-typedef struct Ruleval Ruleval;
 typedef struct Strut Strut;
 typedef struct View View;
 typedef struct WMScreen WMScreen;
@@ -148,6 +156,11 @@ struct Bar {
 	WMScreen*	screen;
 };
 
+struct Regex {
+	char*	regex;
+	Reprog*	regc;
+};
+
 struct Client {
 	Client*	next;
 	Frame*	frame;
@@ -168,14 +181,13 @@ struct Client {
 	char	props[512];
 	long	proto;
 	uint	border;
-	int	dead;
 	int	fullscreen;
+	int	unmapped;
 	bool	floating;
 	bool	fixedsize;
 	bool	urgent;
 	bool	borderless;
 	bool	titleless;
-	bool	nofocus;
 	bool	noinput;
 };
 
@@ -231,23 +243,22 @@ struct Key {
 	KeyCode	key;
 };
 
+struct Map {
+	MapEnt**bucket;
+	uint	nhash;
+};
+
 struct Rule {
-	Rule*		next;
-	Reprog*		regex;
-	char*		value;
-	Ruleval*	values;
+	Rule*	next;
+	Reprog*	regex;
+	char	value[256];
+
 };
 
 struct Ruleset {
 	Rule*	rule;
 	char*	string;
 	uint	size;
-};
-
-struct Ruleval {
-	Ruleval*	next;
-	char*		key;
-	char*		value;
 };
 
 struct Strut {
@@ -275,6 +286,23 @@ struct View {
 	Rectangle *pad;
 };
 
+/* Yuck. */
+#define VECTOR(type, nam, c) \
+typedef struct Vector_##nam Vector_##nam;      \
+struct Vector_##nam {                          \
+	type*	ary;                           \
+	long	n;                             \
+	long	size;                          \
+};                                             \
+void	vector_##c##free(Vector_##nam*);       \
+void	vector_##c##init(Vector_##nam*);       \
+void	vector_##c##push(Vector_##nam*, type); \
+
+VECTOR(long, long, l)
+VECTOR(Rectangle, rect, r)
+VECTOR(void*, ptr, p)
+#undef  VECTOR
+
 #ifndef EXTERN
 #  define EXTERN extern
 #endif
@@ -286,9 +314,8 @@ EXTERN struct {
 	Font*	font;
 	char*	keys;
 	uint	keyssz;
-	Ruleset	colrules;
 	Ruleset	tagrules;
-	Ruleset	rules;
+	Ruleset	colrules;
 	char	grabmod[5];
 	ulong	mod;
 	uint	border;
@@ -300,6 +327,8 @@ EXTERN struct {
 enum {
 	BLeft, BRight
 };
+
+#define BLOCK(x) do { x; }while(0)
 
 EXTERN struct WMScreen {
 	Bar*	bar[2];
@@ -321,35 +350,55 @@ EXTERN struct {
 	bool	sel;
 } disp;
 
+EXTERN Client*	client;
+EXTERN View*	view;
+EXTERN View*	selview;
+EXTERN Key*	key;
+EXTERN Divide*	divs;
 EXTERN Client	c_magic;
 EXTERN Client	c_root;
-EXTERN Client*	client;
-EXTERN Divide*	divs;
-EXTERN Key*	key;
-EXTERN View*	selview;
-EXTERN View*	view;
 
 EXTERN Handlers	framehandler;
+
+EXTERN char	buffer[8092];
+EXTERN char*	_buffer;
+static char*	const _buf_end = buffer + sizeof buffer;
+
+#define bufclear() \
+	BLOCK( _buffer = buffer; _buffer[0] = '\0' )
+#define bufprint(...) \
+	_buffer = seprint(_buffer, _buf_end, __VA_ARGS__)
 
 /* IXP */
 EXTERN IxpServer srv;
 EXTERN Ixp9Srv	p9srv;
 
 /* X11 */
-EXTERN Image*	ibuf32;
-EXTERN Image*	ibuf;
-EXTERN uint	numlock_mask;
 EXTERN uint	valid_mask;
+EXTERN uint	numlock_mask;
+EXTERN Image*	ibuf;
+EXTERN Image*	ibuf32;
+
+EXTERN Cursor	cursor[CurLast];
+
+typedef void (*XHandler)(XEvent*);
+EXTERN XHandler handler[LASTEvent];
 
 /* Misc */
-EXTERN char*	execstr;
-EXTERN char	hostname[HOST_NAME_MAX + 1];
-EXTERN long	ignoreenter;
-EXTERN bool	resizing;
 EXTERN int	starting;
+EXTERN bool	resizing;
+EXTERN long	ignoreenter;
 EXTERN char*	user;
+EXTERN char*	execstr;
+EXTERN int	debugflag;
+EXTERN int	debugfile;
+EXTERN long	xtime;
+EXTERN Visual*	render_visual;
 
 EXTERN Client*	kludge;
 
 extern char*	debugtab[];
+
+#define Debug(x) if(((debugflag|debugfile)&(x)) && setdebug(x))
+#define Dprint(x, ...) BLOCK( if((debugflag|debugfile)&(x)) debug(x, __VA_ARGS__) )
 

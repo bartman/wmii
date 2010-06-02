@@ -1,21 +1,18 @@
-/* Copyight ©2007-2010 Kris Maglione <maglione.k at Gmail>
+/* Copyight ©2007-2010 Kris Maglione <fbsdaemon@gmail.com>
  * See LICENSE file for license details.
  */
 #define IXP_NO_P9_
 #define IXP_P9_STRUCTS
-#include <dirent.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
-#include <sys/signal.h>
 #include <time.h>
 #include <unistd.h>
 #include <ixp.h>
-#include <stuff/util.h>
-#include <bio.h>
+#include <util.h>
 #include <fmt.h>
 
 static IxpClient *client;
-static Biobuf *outbuf;
 
 static void
 usage(void) {
@@ -101,14 +98,14 @@ print_stat(Stat *s, int lflag, char *file, int pflag) {
 		file = "";
 
 	if(lflag)
-		Bprint(outbuf, "%s %s %s %5llud %s %s%s%s\n",
+		print("%s %s %s %5llud %s %s%s%s\n",
 				modestr(s->mode), s->uid, s->gid, s->length,
 				timestr(s->mtime), file, slash, s->name);
 	else {
 		if((s->mode&P9_DMDIR) && strcmp(s->name, "/"))
-			Bprint(outbuf, "%s%s%s/\n", file, slash, s->name);
+			print("%s%s%s/\n", file, slash, s->name);
 		else
-			Bprint(outbuf, "%s%s%s\n", file, slash, s->name);
+			print("%s%s%s\n", file, slash, s->name);
 	}
 }
 
@@ -327,47 +324,18 @@ xnamespace(int argc, char *argv[]) {
 	path = ixp_namespace();
 	if(path == nil)
 		fatal("can't find namespace: %r\n");
-	Bprint(outbuf, "%s\n", path);
+	print("%s\n", path);
 	return 0;
-}
-
-static int
-xproglist(int argc, char *argv[]) {
-	DIR *d;
-	struct dirent *de;
-	char *dir;
-
-	quotefmtinstall();
-
-	ARGBEGIN{
-	default:
-		usage();
-	}ARGEND;
-
-	while((dir = ARGF()))
-		if((d = opendir(dir))) {
-			while((de = readdir(d)))
-				if(access(de->d_name, X_OK))
-					Bprint(outbuf, "%q\n", de->d_name);
-			closedir(d);
-		}
-
-	return 0; /* NOTREACHED */
 }
 
 static int
 xsetsid(int argc, char *argv[]) {
 	char *av0;
-	bool dofork;
 
 	av0 = nil;
-	dofork = false;
 	ARGBEGIN{
 	case '0':
 		av0 = EARGF(usage());
-		break;
-	case 'f':
-		dofork = true;
 		break;
 	default:
 		usage();
@@ -378,13 +346,6 @@ xsetsid(int argc, char *argv[]) {
 		return 1;
 
 	setsid();
-	if(dofork)
-		switch(fork()) {
-		case 0:  break;
-		case -1: fatal("can't fork: %r\n");
-		default: return 0;
-		}
-
 	execvp(av0, argv);
 	fatal("setsid: can't exec: %r");
 	return 1; /* NOTREACHED */
@@ -407,7 +368,6 @@ struct exectab {
 }, utiltab[] = {
 	{"namespace", xnamespace},
 	{"ns", xnamespace},
-	{"proglist", xproglist},
 	{"setsid", xsetsid},
 	{0, }
 };
@@ -437,13 +397,9 @@ main(int argc, char *argv[]) {
 	if(argc < 1)
 		usage();
 
-	outbuf = Bfdopen(1, OWRITE);
-
 	for(tab=utiltab; tab->cmd; tab++)
-		if(!strcmp(*argv, tab->cmd)) {
-			ret = tab->fn(argc, argv);
-			goto done;
-		}
+		if(!strcmp(*argv, tab->cmd))
+			return tab->fn(argc, argv);
 
 	if(address && *address)
 		client = ixp_mount(address);
@@ -451,8 +407,6 @@ main(int argc, char *argv[]) {
 		client = ixp_nsmount("wmii");
 	if(client == nil)
 		fatal("can't mount: %r\n");
-
-	signal(SIGPIPE, SIG_DFL);
 
 	for(tab=fstab; tab->cmd; tab++)
 		if(strcmp(*argv, tab->cmd) == 0) break;
@@ -462,8 +416,6 @@ main(int argc, char *argv[]) {
 	ret = tab->fn(argc, argv);
 
 	ixp_unmount(client);
-done:
-	Bterm(outbuf);
 	return ret;
 }
 
