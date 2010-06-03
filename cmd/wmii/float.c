@@ -36,8 +36,11 @@ float_detach(Frame *f) {
 	frame_remove(f);
 
 	if(a->sel == f) {
+		while(pr && pr->client->nofocus)
+			pr = pr->aprev;
 		if(!pr)
-			pr = a->frame;
+			for(pr=a->frame; pr && pr->anext; pr=pr->anext)
+				if(!pr->client->nofocus) break;
 		a->sel = nil;
 		area_setsel(a, pr);
 	}
@@ -45,7 +48,7 @@ float_detach(Frame *f) {
 
 	if(oldsel)
 		area_focus(oldsel);
-	else if(!a->frame)
+	else if(!a->frame || pr && pr->client->nofocus)
 		if(sel && sel->frame)
 			area_focus(sel);
 }
@@ -67,8 +70,6 @@ float_arrange(Area *a) {
 
 	switch(a->mode) {
 	case Coldefault:
-		for(f=a->frame; f; f=f->anext)
-			f->collapsed = false;
 		break;
 	case Colstack:
 		for(f=a->frame; f; f=f->anext)
@@ -198,15 +199,15 @@ float_placeframe(Frame *f) {
 	 */
 	s = -1;
 	ff = client_groupframe(c, f->view);
-	if (f->screen >= 0)
+	if(f->screen >= 0)
 		s = f->screen;
-	else if (ff)
+	else if(ff)
 		s = ownerscreen(ff->r);
-	else if (selclient())
+	else if(selclient())
 		s = ownerscreen(selclient()->sel->r);
 	else {
 		sel = view_findarea(a->view, a->view->selscreen, a->view->selcol, false);
-		if (sel)
+		if(sel)
 			s = sel->screen;
 	}
 

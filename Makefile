@@ -1,21 +1,14 @@
 ROOT=.
-include ${ROOT}/mk/hdr.mk
-include ${ROOT}/mk/wmii.mk
+include $(ROOT)/mk/hdr.mk
+include $(ROOT)/mk/wmii.mk
 
-PDIRS = \
+DIRS = \
 	doc	     \
 	man	     \
+	lib	     \
 	cmd	     \
-	libwmii_hack \
 	rc	     \
 	alternative_wmiircs
-
-DIRS =	\
-	libbio    \
-	libfmt	  \
-	libregexp \
-	libutf	  \
-	$(PDIRS)
 
 DOCS = README \
        LICENSE
@@ -29,10 +22,9 @@ deb:
 	if [ -d .hg ]; \
 	then hg tip --template 'wmii-hg ($(VERSION)) $(DISTRO); urgency=low\n\n  * {desc}\n\n -- {author}  {date|rfc822date}\n'; \
 	else awk 'BEGIN{"date"|getline; print "wmii-hg ($(VERSION)) $(DISTRO); urgency=low\n\n  * Upstream build\n\n -- Kris Maglione <jg@suckless.org>  "$$0"\n"}'; \
-	fi >debian/changelog
+	fi >debian/changelog || true
 	dpkg-buildpackage -rfakeroot -b -nc
-	[ -d .hg ] && hg revert debian/changelog
+	[ -d .hg ] && hg revert debian/changelog || true
 
-include ${ROOT}/mk/dir.mk
-INSTDIRS = $(PDIRS)
+include $(ROOT)/mk/dir.mk
 

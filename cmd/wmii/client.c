@@ -5,6 +5,7 @@
 #include "dat.h"
 #include <ctype.h>
 #include <strings.h>
+#include <signal.h>
 #include <X11/Xatom.h>
 #include "fns.h"
 
@@ -23,7 +24,7 @@ enum {
 
 static Group*	group;
 
-static void
+void
 group_init(Client *c) {
 	Group *g;
 	long *ret;
@@ -53,12 +54,13 @@ group_init(Client *c) {
 	g->ref++;
 }
 
-static void
+void
 group_remove(Client *c) {
 	Group **gp;
 	Group *g;
 
 	g = c->group;
+	c->group = nil;
 	if(g == nil)
 		return;
 	if(g->client == c)
@@ -101,9 +103,8 @@ client_create(XWindow w, XWindowAttributes *wa) {
 	c->fullscreen = -1;
 	c->border = wa->border_width;
 
-	c->r.min = Pt(wa->x, wa->y);
-	c->r.max = addpt(c->r.min,
-			 Pt(wa->width, wa->height));
+	c->r = rectsetorigin(Rect(0, 0, wa->width, wa->height),
+			     Pt(wa->x, wa->y));
 
 	c->w.type = WWindow;
 	c->w.xid = w;
@@ -115,7 +116,7 @@ client_create(XWindow w, XWindowAttributes *wa) {
 	c->ibuf = &ibuf;
 	if(render_argb_p(wa->visual)) {
 		depth = 32;
-		vis = render_visual;
+		vis = scr.visual32;
 		c->ibuf = &ibuf32;
 	}
 
@@ -176,7 +177,7 @@ client_create(XWindow w, XWindowAttributes *wa) {
 		}
 
 
-	/* 
+	/*
 	 * It's actually possible for a window to be destroyed
 	 * before we get a chance to reparent it. Check for that
 	 * now, because otherwise we'll wind up mapping a
@@ -191,14 +192,39 @@ client_create(XWindow w, XWindowAttributes *wa) {
 
 	ewmh_initclient(c);
 
-	event("CreateClient %C\n", c);
+	event("CreateClient %#C\n", c);
 	client_manage(c);
 	return c;
 }
 
 static bool
 apply_rules(Client *c) {
+	IxpMsg m;
 	Rule *r;
+	Ruleval *rv;
+	bool ret;
+
+	ret = false;
+	if(def.rules.string)
+		for(r=def.rules.rule; r; r=r->next)
+			if(regexec(r->regex, c->props, nil, 0)) {
+				for(rv=r->values; rv; rv=rv->next) {
+					if(!strcmp(rv->key, "default-tags")) {
+						utflcpy(c->tags, rv->value, sizeof c->tags);
+						ret = true;
+					}
+					else {
+						bufclear();
+						bufprint("%s %s", rv->key, rv->value);
+						m = ixp_message(buffer, sizeof buffer, MsgPack);
+						if(!waserror()) {
+							message_client(c, &m);
+							poperror();
+						}
+					}
+				}
+				return true;
+			}
 
 	if(def.tagrules.string)
 		for(r=def.tagrules.rule; r; r=r->next)
@@ -212,25 +238,27 @@ client_manage(Client *c) {
 	Client *leader;
 	Frame *f;
 	char *tags;
-	bool rules;
+	bool dotags;
 
 	if(Dx(c->r) == Dx(screen->r))
 	if(Dy(c->r) == Dy(screen->r))
 	if(c->w.ewmh.type == 0)
 		fullscreen(c, true, -1);
 
-	tags = getprop_string(&c->w, "_WMII_TAGS");
-	rules = apply_rules(c);
+	dotags = apply_rules(c);
 
-	leader = win2client(c->trans);
-	if(leader == nil && c->group)
-		leader = group_leader(c->group);
+	if(!c->tags[0] || dotags) {
+		leader = win2client(c->trans);
+		if(leader == nil && c->group)
+			leader = group_leader(c->group);
 
-	if(tags) // && (!leader || leader == c || starting))
-		utflcpy(c->tags, tags, sizeof c->tags);
-	else if(leader && !rules)
-		utflcpy(c->tags, leader->tags, sizeof c->tags);
-	free(tags);
+		tags = getprop_string(&c->w, "_WMII_TAGS");
+		if(tags)
+			utflcpy(c->tags, tags, sizeof c->tags);
+		else if(leader)
+			utflcpy(c->tags, leader->tags, sizeof c->tags);
+		free(tags);
+	}
 
 	if(c->tags[0])
 		client_applytags(c, c->tags);
@@ -278,7 +306,7 @@ client_destroy(Client *c) {
 
 	r = client_grav(c, ZR);
 
-	hide = false;	
+	hide = false;
 	if(!c->sel || c->sel->view != selview)
 		hide = true;
 
@@ -312,10 +340,10 @@ client_destroy(Client *c) {
 	ewmh_destroyclient(c);
 	group_remove(c);
 	if(starting > -1)
-		event("DestroyClient %C\n", c);
+		event("DestroyClient %#C\n", c);
 
-	flushevents(FocusChangeMask, true);
-	free(c->w.hints);
+	event_flush(FocusChangeMask, true);
+	cleanupwindow(&c->w);
 	free(c);
 }
 
@@ -351,15 +379,11 @@ Cfmt(Fmt *f) {
 
 	c = va_arg(f->args, Client*);
 	if(c)
-		return fmtprint(f, "%W", &c->w);
+		if(f->flags & FmtSharp)
+			return fmtprint(f, "%W", &c->w);
+		else
+			return fmtprint(f, "%s", c->name);
 	return fmtprint(f, "<nil>");
-}
-
-char*
-clientname(Client *c) {
-	if(c)
-		return c->name;
-	return "<nil>";
 }
 
 Rectangle
@@ -402,7 +426,7 @@ client_floats_p(Client *c) {
 	    || c->titleless
 	    || c->borderless
 	    || c->fullscreen >= 0
-	    || (c->w.ewmh.type & (TypeDialog|TypeSplash|TypeDock));
+	    || (c->w.ewmh.type & (TypeDialog|TypeSplash|TypeDock|TypeMenu|TypeToolbar));
 }
 
 Frame*
@@ -480,7 +504,9 @@ focus(Client *c, bool user) {
 	View *v;
 	Frame *f;
 
-	USED(user);
+	if(!user && c->nofocus)
+		return;
+
 	f = c->sel;
 	if(!f)
 		return;
@@ -503,31 +529,31 @@ client_focus(Client *c) {
 		c->group->client = c;
 
 	sync();
-	flushevents(FocusChangeMask, true);
+	event_flush(FocusChangeMask, true);
 
-	Dprint(DFocus, "client_focus([%C]%s)\n", c, clientname(c));
-	Dprint(DFocus, "\t[%C]%s\n\t=> [%C]%s\n",
-			disp.focus, clientname(disp.focus),
-			c, clientname(c));
+	Dprint(DFocus, "client_focus([%#C]%C)\n", c, c);
+	Dprint(DFocus, "\t[%#C]%C\n\t=> [%#C]%C\n",
+			disp.focus, disp.focus,
+			c, c);
 	if(disp.focus != c) {
 		if(c) {
 			if(!c->noinput)
 				setfocus(&c->w, RevertToParent);
 			else if(c->proto & ProtoTakeFocus) {
-				xtime_kludge();
+				event_updatextime();
 				client_message(c, "WM_TAKE_FOCUS", 0);
 			}
 		}else
 			setfocus(screen->barwin, RevertToParent);
-		event("ClientFocus %C\n", c);
 
 		sync();
-		flushevents(FocusChangeMask, true);
+		event_flush(FocusChangeMask, true);
 	}
 }
 
 void
 client_resize(Client *c, Rectangle r) {
+	bool client_resized, frame_resized;
 	Frame *f;
 
 	f = c->sel;
@@ -552,10 +578,13 @@ client_resize(Client *c, Rectangle r) {
 		client_unmap(c, IconicState);
 	}else {
 		client_map(c);
-		reshapewin(c->framewin, f->r);
-		reshapewin(&c->w, f->crect);
+		if((frame_resized = !eqrect(c->framewin->r, f->r)))
+			reshapewin(c->framewin, f->r);
+		if((client_resized = !eqrect(c->w.r, f->crect)))
+			reshapewin(&c->w, f->crect);
 		map_frame(c);
-		client_configure(c);
+		if(client_resized || frame_resized)
+			client_configure(c);
 		ewmh_framesize(c);
 	}
 }
@@ -590,20 +619,36 @@ client_configure(Client *c) {
 	e.height = Dy(r);
 	e.border_width = c->border;
 
-	sendevent(&c->w, false, StructureNotifyMask, (XEvent*)&e);
+	sendevent(&c->w, false, StructureNotifyMask, &e);
 }
 
 void
 client_message(Client *c, char *msg, long l2) {
-	sendmessage(&c->w, "WM_PROTOCOLS", xatom(msg), xtime, l2, 0, 0);
+	sendmessage(&c->w, "WM_PROTOCOLS", xatom(msg), event_xtime, l2, 0, 0);
 }
 
 void
 client_kill(Client *c, bool nice) {
-	if(nice && (c->proto & ProtoDelete)) {
+	char **host;
+	ulong *pid;
+	long n;
+
+	c->dead = 1;
+	if(!nice) {
+		getprop_textlist(&c->w, "WM_CLIENT_MACHINE", &host);
+		n = getprop_ulong(&c->w, Net("WM_PID"), "CARDINAL", 0, &pid, 1);
+		if(n && *host && !strcmp(hostname, *host))
+			kill((uint)*pid, SIGKILL);
+		freestringlist(host);
+		free(pid);
+
+		XKillClient(display, c->w.xid);
+	}
+	else if(c->proto & ProtoDelete) {
 		client_message(c, "WM_DELETE_WINDOW", 0);
-		ewmh_pingclient(c);
-	}else
+		ewmh_checkresponsive(c);
+	}
+	else
 		XKillClient(display, c->w.xid);
 }
 
@@ -618,7 +663,7 @@ fullscreen(Client *c, int fullscreen, long screen) {
 	if(fullscreen == (c->fullscreen >= 0))
 		return;
 
-	event("Fullscreen %C %s\n", c, (fullscreen ? "on" : "off"));
+	event("Fullscreen %#C %s\n", c, (fullscreen ? "on" : "off"));
 	ewmh_updatestate(c);
 
 	c->fullscreen = -1;
@@ -671,7 +716,7 @@ client_seturgent(Client *c, int urgent, int from) {
 	cnot = (urgent ? "" : "Not");
 
 	if(urgent != c->urgent) {
-		event("%sUrgent %C %s\n", cnot, c, cfrom);
+		event("%sUrgent %#C %s\n", cnot, c, cfrom);
 		c->urgent = urgent;
 		ewmh_updatestate(c);
 		if(c->sel) {
@@ -723,9 +768,7 @@ client_updatename(Client *c) {
 
 	c->name[0] = '\0';
 
-	str = getprop_string(&c->w, "_NET_WM_NAME");
-	if(str == nil)
-		str = getprop_string(&c->w, "WM_NAME");
+	str = windowname(&c->w);
 	if(str)
 		utflcpy(c->name, str, sizeof c->name);
 	free(str);
@@ -785,7 +828,7 @@ updatemwm(Client *c) {
 	}
 }
 
-void
+bool
 client_prop(Client *c, Atom a) {
 	WinHints h;
 	XWMHints *wmh;
@@ -803,8 +846,7 @@ client_prop(Client *c, Atom a) {
 	else
 	switch (a) {
 	default:
-		ewmh_prop(c, a);
-		break;
+		return true;
 	case XA_WM_TRANSIENT_FOR:
 		XGetTransientForHint(display, c->w.xid, &c->trans);
 		break;
@@ -812,7 +854,7 @@ client_prop(Client *c, Atom a) {
 		memset(&h, 0, sizeof h);
 		if(c->w.hints)
 			bcopy(c->w.hints, &h, sizeof h);
-		sethints(&c->w);
+		gethints(&c->w);
 		if(c->w.hints)
 			c->fixedsize = eqpt(c->w.hints->min, c->w.hints->max);
 		if(memcmp(&h, c->w.hints, sizeof h))
@@ -840,15 +882,16 @@ client_prop(Client *c, Atom a) {
 		client_updatename(c);
 		break;
 	}
+	return false;
 }
 
 /* Handlers */
-static void
-configreq_event(Window *w, XConfigureRequestEvent *e) {
+static bool
+configreq_event(Window *w, void *aux, XConfigureRequestEvent *e) {
 	Rectangle r, cr;
 	Client *c;
 
-	c = w->aux;
+	c = aux;
 
 	r = client_grav(c, ZR);
 	r.max = subpt(r.max, r.min);
@@ -875,36 +918,39 @@ configreq_event(Window *w, XConfigureRequestEvent *e) {
 		c->sel->floatr = r;
 		client_configure(c);
 	}
+	return false;
 }
 
-static void
-destroy_event(Window *w, XDestroyWindowEvent *e) {
+static bool
+destroy_event(Window *w, void *aux, XDestroyWindowEvent *e) {
 	USED(w, e);
 
-	client_destroy(w->aux);
+	client_destroy(aux);
+	return false;
 }
 
-static void
-enter_event(Window *w, XCrossingEvent *e) {
+static bool
+enter_event(Window *w, void *aux, XCrossingEvent *e) {
 	Client *c;
-	
-	c = w->aux;
+
+	c = aux;
 	if(e->detail != NotifyInferior) {
 		if(e->detail != NotifyVirtual)
 		if(e->serial != ignoreenter && disp.focus != c) {
-			Dprint(DFocus, "enter_notify([%C]%s)\n", c, c->name);
+			Dprint(DFocus, "enter_notify([%#C]%s)\n", c, c->name);
 			focus(c, false);
 		}
 		client_setcursor(c, cursor[CurNormal]);
 	}else
-		Dprint(DFocus, "enter_notify(%C[NotifyInferior]%s)\n", c, c->name);
+		Dprint(DFocus, "enter_notify(%#C[NotifyInferior]%s)\n", c, c->name);
+	return false;
 }
 
-static void
-focusin_event(Window *w, XFocusChangeEvent *e) {
+static bool
+focusin_event(Window *w, void *aux, XFocusChangeEvent *e) {
 	Client *c, *old;
 
-	c = w->aux;
+	c = aux;
 
 	print_focus("focusin_event", c, c->name);
 
@@ -914,16 +960,18 @@ focusin_event(Window *w, XFocusChangeEvent *e) {
 	old = disp.focus;
 	disp.focus = c;
 	if(c != old) {
+		event("ClientFocus %#C\n", c);
 		if(c->sel)
 			frame_draw(c->sel);
 	}
+	return false;
 }
 
-static void
-focusout_event(Window *w, XFocusChangeEvent *e) {
+static bool
+focusout_event(Window *w, void *aux, XFocusChangeEvent *e) {
 	Client *c;
 
-	c = w->aux;
+	c = aux;
 	if((e->mode == NotifyWhileGrabbed) && (disp.hasgrab != &c_root)) {
 		if(disp.focus)
 			disp.hasgrab = disp.focus;
@@ -933,38 +981,37 @@ focusout_event(Window *w, XFocusChangeEvent *e) {
 		if(c->sel)
 			frame_draw(c->sel);
 	}
+	return false;
 }
 
-static void
-unmap_event(Window *w, XUnmapEvent *e) {
+static bool
+unmap_event(Window *w, void *aux, XUnmapEvent *e) {
 	Client *c;
-	
-	c = w->aux;
-	if(!e->send_event)
-		c->unmapped--;
-	client_destroy(c);
+
+	c = aux;
+	if(e->send_event || c->w.unmapped < 0)
+		client_destroy(c);
+	return false;
 }
 
-static void
-map_event(Window *w, XMapEvent *e) {
+static bool
+map_event(Window *w, void *aux, XMapEvent *e) {
 	Client *c;
 
 	USED(e);
-	
-	c = w->aux;
+
+	c = aux;
 	if(c == selclient())
 		client_focus(c);
+	return false;
 }
 
-static void
-property_event(Window *w, XPropertyEvent *e) {
-	Client *c;
+static bool
+property_event(Window *w, void *aux, XPropertyEvent *e) {
 
 	if(e->state == PropertyDelete) /* FIXME */
-		return;
-
-	c = w->aux;
-	client_prop(c, e->atom);
+		return true;
+	return client_prop(aux, e->atom);
 }
 
 static Handlers handlers = {
@@ -1004,6 +1051,7 @@ client_setviews(Client *c, char **tags) {
 		if(*tags) {
 			if(!*fp || cmp > 0) {
 				f = frame_create(c, view_create(*tags));
+				Dprint(DGeneric, "%#C %p %R %R %R %C\n", c, c->sel, c->r, f->floatr, c->sel ? c->sel->floatr : ZR, c);
 				if(f->view == selview || !c->sel)
 					c->sel = f;
 				kludge = c; /* FIXME */
@@ -1030,7 +1078,7 @@ bsstrcmp(const void *a, const void *b) {
 static int
 strpcmp(const void *ap, const void *bp) {
 	char **a, **b;
-	
+
 	a = (char**)ap;
 	b = (char**)bp;
 	return strcmp(*a, *b);
@@ -1044,10 +1092,10 @@ static char *badtags[] = {
 
 char*
 client_extratags(Client *c) {
+	Fmt fmt;
 	Frame *f;
 	char *toks[32];
 	char **tags;
-	char *s, *s2;
 	int i;
 
 	i = 0;
@@ -1058,28 +1106,21 @@ client_extratags(Client *c) {
 	toks[i] = nil;
 	tags = comm(CLeft, toks, c->retags);
 
-	s = nil;
+	fmtstrinit(&fmt);
 	if(i > 1)
-		s = join(tags, "+");
+		join(tags, "+", &fmt);
 	free(tags);
-	if(!c->tagre.regex && !c->tagvre.regex)
-		return s;
 
-	if(c->tagre.regex) {
-		s2 = s;
-		s = smprint("%s+/%s/", s ? s : "", c->tagre.regex);
-		free(s2);
-	}
-	if(c->tagvre.regex) {
-		s2 = s;
-		s = smprint("%s-/%s/", s ? s : "", c->tagvre.regex);
-		free(s2);
-	}
-	return s;
+	if(c->tagre.regex)
+		fmtprint(&fmt, "+/%s/", c->tagre.regex);
+	if(c->tagvre.regex)
+		fmtprint(&fmt, "-/%s/", c->tagvre.regex);
+	return fmtstrflush(&fmt);
 }
 
 bool
 client_applytags(Client *c, const char *tags) {
+	Fmt fmt;
 	uint i, j, k, n;
 	bool add, found;
 	char buf[512], last;
@@ -1113,10 +1154,10 @@ client_applytags(Client *c, const char *tags) {
 	found = false;
 
 	j = 0;
-	while(buf[n] && n < sizeof(buf) && j < 32) {
+	while(buf[n] && n < sizeof buf && j < 32) {
 		/* Check for regex. */
 		if(buf[n] == '/') {
-			for(i=n+1; i < sizeof(buf) - 1; i++)
+			for(i=n+1; i < sizeof buf - 1; i++)
 				if(buf[i] == '/') break;
 			if(buf[i] == '/') {
 				i++;
@@ -1137,7 +1178,7 @@ client_applytags(Client *c, const char *tags) {
 			}
 		}
 
-		for(i = n; i < sizeof(buf) - 1; i++)
+		for(i = n; i < sizeof buf - 1; i++)
 			if(buf[i] == '+'
 			|| buf[i] == '-'
 			|| buf[i] == '\0')
@@ -1183,12 +1224,15 @@ client_applytags(Client *c, const char *tags) {
 	qsort(toks, j, sizeof *toks, strpcmp);
 	uniq(toks);
 
-	s = join(toks, "+");
-	utflcpy(c->tags, s, sizeof c->tags);
+	fmtstrinit(&fmt);
+	join(toks, "+", &fmt);
 	if(c->tagre.regex)
-		strlcatprint(c->tags, sizeof c->tags, "+/%s/", c->tagre.regex);
+		fmtprint(&fmt, "+/%s/", c->tagre.regex);
 	if(c->tagvre.regex)
-		strlcatprint(c->tags, sizeof c->tags, "-/%s/", c->tagvre.regex);
+		fmtprint(&fmt, "-/%s/", c->tagvre.regex);
+
+	s = fmtstrflush(&fmt);
+	utflcpy(c->tags, s, sizeof c->tags);
 	changeprop_string(&c->w, "_WMII_TAGS", c->tags);
 	free(s);
 

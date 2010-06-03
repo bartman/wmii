@@ -18,6 +18,9 @@ identity = lambda k: k
 # Configuration should be placed in that file, and this file
 # left unmodified, if possible. wmiirc_local should import
 # wmiirc or any other modules it needs.
+#
+# Do *not* copy this file to wmiirc_local.py lest you want it
+# executed twice.
 
 # Keys
 keys.defs = dict(
@@ -47,6 +50,7 @@ setbackground(background)
 
 terminal = 'wmiir', 'setsid', '@TERMINAL@'
 pygmi.shell = os.environ.get('SHELL', 'sh')
+tray = 'witray',
 
 @defmonitor
 def load(self):
@@ -95,9 +99,9 @@ events.bind({
 
     'Notice':       lambda args: notice.show(args),
 
-    Match(('LeftBarClick', 'LeftBarDND'), '1'): lambda e, b, tag: tags.select(tag),
-    Match('LeftBarClick', '4'): lambda *a: tags.select(tags.next(True)),
-    Match('LeftBarClick', '5'): lambda *a: tags.select(tags.next()),
+    Match(('LeftBarClick', 'LeftBarDND'), 1): lambda e, b, tag: tags.select(tag),
+    Match('LeftBarClick', 4): lambda *a: tags.select(tags.next(True)),
+    Match('LeftBarClick', 5): lambda *a: tags.select(tags.next()),
 
     Match('LeftBarMouseDown', 3):   lambda e, n, tag: clickmenu((
             ('Delete',     lambda t: Tag(t).delete()),
@@ -292,7 +296,7 @@ addresize('',         'Grow', 'grow')
 addresize('Control-', 'Shrink', 'grow', '-1')
 addresize('Shift-',   'Nudge', 'nudge')
 
-Actions.rehash()
+Thread(target=lambda: Actions.rehash()).start()
 
 if not os.environ.get('WMII_NOPLUGINS', ''):
     dirs = filter(curry(os.access, _, os.R_OK),
@@ -304,5 +308,7 @@ if not os.environ.get('WMII_NOPLUGINS', ''):
             exec 'import %s' % f
         except Exception, e:
             traceback.print_exc(sys.stdout)
+
+call(*tray, background=True)
 
 # vim:se sts=4 sw=4 et:

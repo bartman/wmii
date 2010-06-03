@@ -135,9 +135,7 @@ wi_fnmenu() {
 }
 
 wi_proglist() {
-        ls -lL $(echo $* | sed 'y/:/ /') 2>/dev/null \
-		| awk '$1 ~ /^[^d].*x/ { print $NF }' \
-		| sort | uniq
+        wmiir proglist -- $(echo $* | sed 'y/:/ /') | sort | uniq
 }
 
 wi_actions() {
@@ -193,9 +191,9 @@ wi_selclient() {
 wi_eventloop() {
 	echo "$Keys" | wmiir write /keys
 
- 	if [ "$1" = -i ]
- 	then cat
- 	else wmiir read /event
+	if [ "$1" = -i ]
+	then cat
+	else wmiir read /event
 	fi | awk '/./ { print; fflush() } END { print "" }' |
 	while :; do
 		# Work around a dash bug.

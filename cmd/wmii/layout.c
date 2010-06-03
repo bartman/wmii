@@ -48,7 +48,7 @@ framerect(Framewin *f) {
 	r = rectaddpt(r, f->pt);
 
 	scrn = f->screen;
-	if (scrn == -1)
+	if(scrn == -1)
 		scrn = max(ownerscreen(f->f->r), 0);
 
 	/* Keep onscreen */
@@ -72,7 +72,7 @@ framewin(Frame *f, Point pt, int orientation, int n) {
 	Framewin *fw;
 
 	fw = emallocz(sizeof *fw);
-	wa.override_redirect = true;	
+	wa.override_redirect = true;
 	wa.event_mask = ExposureMask;
 	fw->w = createwindow(&scr.root, Rect(0, 0, 1, 1),
 			scr.depth, InputOutput,
@@ -86,10 +86,9 @@ framewin(Frame *f, Point pt, int orientation, int n) {
 	frameadjust(fw, pt, orientation, n);
 	reshapewin(fw->w, framerect(fw));
 
-	mapwin(fw->w);
 	raisewin(fw->w);
 
-	return fw;	
+	return fw;
 }
 
 static void
@@ -98,26 +97,27 @@ framedestroy(Framewin *f) {
 	free(f);
 }
 
-static void
-expose_event(Window *w, XExposeEvent *e) {
+static bool
+expose_event(Window *w, void *aux, XExposeEvent *e) {
 	Rectangle r;
 	Framewin *f;
 	Image *buf;
 	CTuple *c;
-	
+
 	USED(e);
 
-	f = w->aux;
+	f = aux;
 	c = &def.focuscolor;
 	buf = disp.ibuf;
-	
+
 	r = rectsubpt(w->r, w->r.min);
 	fill(buf, r, c->bg);
 	border(buf, r, 1, c->border);
 	border(buf, f->grabbox, 1, c->border);
 	border(buf, insetrect(f->grabbox, -f->grabbox.min.x), 1, c->border);
 
-	copyimage(w, r, buf, ZP);	
+	copyimage(w, r, buf, ZP);
+	return false;
 }
 
 static Handlers handlers = {
@@ -132,7 +132,7 @@ find_area(Point pt) {
 
 	v = selview;
 	for(s=0; s < nscreens; s++) {
-		if(!rect_haspoint_p(pt, screens[s]->r))
+		if(!rect_haspoint_p(screens[s]->r, pt))
 			continue;
 		for(a=v->areas[s]; a; a=a->next)
 			if(pt.x < a->r.max.x)
@@ -202,7 +202,7 @@ hplace(Framewin *fw, Point pt) {
 	Area *a;
 	View *v;
 	int minw;
-	
+
 	v = selview;
 
 	a = find_area(pt);
@@ -223,7 +223,7 @@ hplace(Framewin *fw, Point pt) {
 
 	pt.y = a->r.min.y;
 	frameadjust(fw, pt, OVert, Dy(a->r));
-	reshapewin(fw->w, framerect(fw));	
+	reshapewin(fw->w, framerect(fw));
 }
 
 static Point
@@ -236,9 +236,9 @@ grabboxcenter(Frame *f) {
 	return p;
 }
 
-static int tvcol(Frame*);
-static int thcol(Frame*);
-static int tfloat(Frame*);
+static int tvcol(Frame*, bool);
+static int thcol(Frame*, bool);
+static int tfloat(Frame*, bool);
 
 enum {
 	TDone,
@@ -247,7 +247,7 @@ enum {
 	TFloat,
 };
 
-static int (*tramp[])(Frame*) = {
+static int (*tramp[])(Frame*, bool) = {
 	0,
 	tvcol,
 	thcol,
@@ -260,18 +260,26 @@ static int (*tramp[])(Frame*) = {
  */
 static void
 trampoline(int fn, Frame *f, bool grabbox) {
+	int moved;
 
+	moved = 0;
 	while(fn > 0) {
-		resizing = fn != TFloat;
-		view_update(f->view);
 		if(grabbox)
 			warppointer(grabboxcenter(f));
 		//f->collapsed = false;
-		fn = tramp[fn](f);
+		fn = tramp[fn](f, moved++);
 	}
 	ungrabpointer();
-	resizing = false;
-	view_update(f->view);
+}
+
+static void
+resizemode(int mode) {
+	bool orig;
+
+	orig = resizing;
+	resizing = mode && mode != TFloat;
+	if(resizing != orig)
+		view_update(selview);
 }
 
 void
@@ -369,10 +377,13 @@ column_openstack(Area *a, Frame *f, int h) {
 static void
 column_drop(Area *a, Frame *f, int y) {
 	Frame *ff;
-	int dy;
+	int dy, extra_y;
 
-	for(ff=a->frame; ff; ff=ff->anext)
+	extra_y = Dy(a->r);
+	for(ff=a->frame; ff; ff=ff->anext) {
 		assert(ff != f);
+		extra_y -= Dy(ff->colr);
+	}
 
 	if(a->frame == nil || y <= a->frame->r.min.y) {
 		f->collapsed = true;
@@ -395,14 +406,14 @@ column_drop(Area *a, Frame *f, int y) {
 		column_openstack(a, ff, labelh(def.font) - dy);
 	}else {
 		f->colr.min.y = y;
-		f->colr.max.y = ff->colr.max.y;
+		f->colr.max.y = ff->colr.max.y + extra_y;
 		ff->colr.max.y = y;
 	}
 	column_insert(a, f, ff);
 }
 
 static int
-thcol(Frame *f) {
+thcol(Frame *f, bool moved) {
 	Framewin *fw;
 	Frame *fp, *fn;
 	Area *a;
@@ -413,21 +424,32 @@ thcol(Frame *f) {
 	focus(f->client, false);
 
 	ret = TDone;
-	if(!grabpointer(&scr.root, nil, cursor[CurIcon], MouseMask))
+	if(!grabpointer(&scr.root, nil, None, MouseMask))
 		return TDone;
 
-	pt = querypointer(&scr.root);
+	readmotion(&pt);
 	pt2.x = f->area->r.min.x;
 	pt2.y = pt.y;
 	fw = framewin(f, pt2, OHoriz, Dx(f->area->r));
+
+	if(moved)
+		goto casemotion;
 
 	vplace(fw, pt);
 	for(;;)
 		switch (readmouse(&pt, &button)) {
 		case MotionNotify:
+		casemotion:
+			moved = 1;
+			resizemode(THCol);
+			if(mapwin(fw->w))
+				grabpointer(&scr.root, nil, cursor[CurIcon], MouseMask);
 			vplace(fw, pt);
 			break;
 		case ButtonRelease:
+			if(!moved)
+				goto done;
+
 			if(button != 1)
 				continue;
 			SET(collapsed);
@@ -476,15 +498,15 @@ thcol(Frame *f) {
 			goto done;
 		}
 done:
+	resizemode(0);
 	framedestroy(fw);
 	return ret;
 }
 
 static int
-tvcol(Frame *f) {
+tvcol(Frame *f, bool moved) {
 	Framewin *fw;
 	Window *cwin;
-	WinAttr wa;
 	Rectangle r;
 	Point pt, pt2;
 	uint button;
@@ -499,20 +521,24 @@ tvcol(Frame *f) {
 	scrn = f->area->screen > -1 ? f->area->screen : find_area(pt) ? find_area(pt)->screen : 0;
 	r = f->view->r[scrn];
 	fw = framewin(f, pt2, OVert, Dy(r));
+	mapwin(fw->w);
 
 	r.min.y += fw->grabbox.min.y + Dy(fw->grabbox)/2;
 	r.max.y = r.min.y + 1;
-	cwin = createwindow(&scr.root, r, 0, InputOnly, &wa, 0);
+	cwin = createwindow(&scr.root, r, 0, InputOnly, nil, 0);
 	mapwin(cwin);
 
 	ret = TDone;
 	if(!grabpointer(&scr.root, cwin, cursor[CurIcon], MouseMask))
 		goto done;
 
+	resizemode(TVCol);
+
 	hplace(fw, pt);
 	for(;;)
 		switch (readmouse(&pt, &button)) {
 		case MotionNotify:
+			moved = 1;
 			hplace(fw, pt);
 			continue;
 		case ButtonPress:
@@ -536,11 +562,12 @@ tvcol(Frame *f) {
 done:
 	framedestroy(fw);
 	destroywindow(cwin);
+	resizemode(0);
 	return ret;
 }
 
 static int
-tfloat(Frame *f) {
+tfloat(Frame *f, bool moved) {
 	Rectangle *rects;
 	Rectangle frect, origin;
 	Point pt, pt1;
@@ -556,9 +583,12 @@ tfloat(Frame *f) {
 		else if(f->aprev)
 			f->aprev->colr.max.y = f->colr.max.y;
 		area_moveto(f->view->floating, f);
+		view_update(f->view);
+		warppointer(grabboxcenter(f));
 	}
 	map_frame(f->client);
-	focus(f->client, false);
+	if(!f->collapsed)
+		focus(f->client, false);
 
 	ret = TDone;
 	if(!grabpointer(c->framewin, nil, cursor[CurMove], MouseMask))
@@ -568,7 +598,10 @@ tfloat(Frame *f) {
 	origin = f->r;
 	frect = f->r;
 
-	pt = querypointer(&scr.root);
+	if(!readmotion(&pt)) {
+		focus(f->client, false);
+		goto done;
+	}
 	/* pt1 = grabboxcenter(f); */
 	pt1 = pt;
 	goto case_motion;
@@ -578,6 +611,7 @@ shut_up_ken:
 		switch (readmouse(&pt, &button)) {
 		default: goto shut_up_ken;
 		case MotionNotify:
+			moved = 1;
 		case_motion:
 			origin = rectaddpt(origin, subpt(pt, pt1));
 			origin = constrain(origin, -1);
@@ -593,6 +627,10 @@ shut_up_ken:
 		case ButtonRelease:
 			if(button != 1)
 				continue;
+			if(!moved) {
+				f->collapsed = !f->collapsed;
+				client_resize(f->client, f->floatr);
+			}
 			goto done;
 		case ButtonPress:
 			if(button != 3)

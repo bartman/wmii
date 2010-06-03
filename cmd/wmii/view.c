@@ -86,7 +86,6 @@ view_create(const char *name) {
 	for(i=0; i < nscreens; i++)
 		view_init(v, i);
 
-	
 	area_focus(v->firstarea);
 
 	v->next = *vp;
@@ -149,6 +148,7 @@ view_destroy(View *v) {
 	}
 	free(v->areas);
 	free(v->r);
+	free(v->pad);
 	free(v);
 	ewmh_updateviews();
 }
@@ -207,26 +207,39 @@ view_update_rect(View *v) {
 	WMScreen *scrn;
 	Strut *strut;
 	Frame *f;
+	int left, right, top, bottom;
 	int s, i;
-	/* These short variable names are hell, eh? */
 
 	/* XXX:
 	if(v != selview)
 		return false;
 	*/
+
+	top = 0;
+	left = 0;
+	right = 0;
+	bottom = 0;
 	vec.n = 0;
 	for(f=v->floating->frame; f; f=f->anext) {
 		strut = f->client->strut;
 		if(!strut)
 			continue;
+		/* Can do better in the future. */
+		top = max(top, strut->top.max.y);
+		left = max(left, strut->left.max.x);
+		right = min(right, strut->right.min.x);
+		bottom = min(bottom, strut->bottom.min.y);
 		vector_rpush(&vec, strut->top);
 		vector_rpush(&vec, strut->left);
 		vector_rpush(&vec, rectaddpt(strut->right, Pt(scr.rect.max.x, 0)));
 		vector_rpush(&vec, rectaddpt(strut->bottom, Pt(0, scr.rect.max.y)));
 	}
-	/* Find the largest screen space not occupied by struts. */
 	vp = unique_rects(&vec, scr.rect);
-	scrnr = max_rect(vp);
+	scrnr = scr.rect;
+	scrnr.min.y += top;
+	scrnr.min.x += left;
+	scrnr.max.x += right;
+	scrnr.max.y += bottom;
 
 	/* FIXME: Multihead. */
 	v->floating->r = scr.rect;
@@ -253,6 +266,7 @@ view_update_rect(View *v) {
 			|| scrn->barpos != BTop && sr.max.y > rr.max.y)
 				rr = sr;
 		}
+
 		if(scrn->barpos == BTop) {
 			bar_sety(scrn, rr.min.y);
 			r.min.y = max(r.min.y, scrn->brect.max.y);
@@ -317,7 +331,7 @@ view_update(View *v) {
 
 void
 view_focus(WMScreen *s, View *v) {
-	
+
 	USED(s);
 
 	_view_select(v);
@@ -345,7 +359,7 @@ view_attach(View *v, Frame *f) {
 	Client *c;
 	Frame *ff;
 	Area *a, *oldsel;
-	
+
 	c = f->client;
 
 	oldsel = v->oldsel;
@@ -435,20 +449,13 @@ view_restack(View *v) {
 	Frame *f;
 	Area *a;
 	int s;
-	
+
 	if(v != selview)
 		return;
 
 	wins.n = 0;
 
-	/* *sigh */
 	for(f=v->floating->stack; f; f=f->snext)
-		if(f->client->w.ewmh.type & TypeDock)
-			vector_lpush(&wins, f->client->framewin->xid);
-		else
-			break;
-
-	for(; f; f=f->snext)
 		vector_lpush(&wins, f->client->framewin->xid);
 
 	for(int s=0; s < nscreens; s++)
@@ -578,19 +585,26 @@ view_update_all(void) {
 }
 
 uint
-view_newcolwidth(View *v, int num) {
+view_newcolwidth(View *v, int scrn, int num) {
 	Rule *r;
 	char *toks[16];
 	char buf[sizeof r->value];
 	ulong n;
 
+	/* XXX: Multihead. */
 	for(r=def.colrules.rule; r; r=r->next)
 		if(regexec(r->regex, v->name, nil, 0)) {
 			utflcpy(buf, r->value, sizeof buf);
 			n = tokenize(toks, 16, buf, '+');
+
 			if(num < n)
 				if(getulong(toks[num], &n))
-					return Dx(v->screenr) * (n / 100.0); /* XXX: Multihead. */
+					return Dx(v->r[scrn]) * (n / 100.0);
+				else if(!strcmp("px", strend(toks[num], 2))) {
+					toks[num][strlen(toks[num]) - 2] = '\0';
+					if(getulong(toks[num], &n))
+						return n;
+				}
 			break;
 		}
 	return 0;
@@ -613,13 +627,13 @@ view_index(View *v) {
 		for(f=a->frame; f; f=f->anext) {
 			r = &f->r;
 			if(a->floating)
-				bufprint("%a %C %d %d %d %d %s\n",
+				bufprint("%a %#C %d %d %d %d %s\n",
 						a, f->client,
 						r->min.x, r->min.y,
 						Dx(*r), Dy(*r),
 						f->client->props);
 			else
-				bufprint("%a %C %d %d %s\n",
+				bufprint("%a %#C %d %d %s\n",
 						a, f->client,
 						r->min.y, Dy(*r),
 						f->client->props);

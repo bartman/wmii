@@ -1,27 +1,20 @@
 ROOT= ../..
-include ${ROOT}/mk/hdr.mk
-include ${ROOT}/mk/wmii.mk
+include $(ROOT)/mk/hdr.mk
+include $(ROOT)/mk/wmii.mk
 
-main.c: ${ROOT}/mk/wmii.mk
+main.c: $(ROOT)/mk/wmii.mk
 
 TARG =	wistrut
 HFILES=	dat.h fns.h
 
-PACKAGES += $(X11PACKAGES) xext xrandr xinerama
+PACKAGES += $(X11PACKAGES)
 
-LIB =	$(LIBIXP)
-LIBS += -lm $(LIBS9)
+LIB = $(LIBS9)
+LIBS += -lm
 CFLAGS += -DIXP_NEEDAPI=86
 OBJ =	main	\
-	event	\
 	ewmh	\
-	win	\
-	_util	\
-	../wmii/map	\
-	../wmii/printevent \
-	printevent_kludge \
-	../wmii/x11	\
-	../util
+	win
 
-include ${ROOT}/mk/one.mk
+include $(ROOT)/mk/one.mk
 
