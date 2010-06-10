@@ -1,3 +1,6 @@
+3.9.2:
+    * Work around mawk bug that broke wmiirc.
+
 3.9.1:
     * Workaround a dash 0.5.6 bug that broke wmiirc.
     * Noticably speed-up python wmiirc startup.
